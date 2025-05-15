@@ -1,0 +1,37 @@
+{# In templates/match-thread.html.twig #}
+{%
+  set thread_wrapper_classes = [
+    'match-chat-thread-wrapper',
+  ]|merge(attributes.offsetGet('class')|default([]))
+%}
+<div{{attributes.addClass(thread_wrapper_classes)}}>
+
+	{% if thread.user1 and thread.user2 %}
+		{% set current_user_id = app.current_user.id() %}
+		{# Ensure user entities are loaded for getDisplayName() #}
+		{% set user1_entity = thread.user1.entity %}
+		{% set user2_entity = thread.user2.entity %}
+		{% if user1_entity and user2_entity %}
+			{% set other_user = (user1_entity.id() == current_user_id) ? user2_entity : user1_entity %}
+			<div class="chat-with-header">
+				<h3>{{ 'Chat with @username'|t({'@username': other_user.getDisplayName()}) }}</h3>
+			</div>
+		{% endif %}
+	{% endif %}
+
+	{# This div will be the scrollable container for messages #}
+	<div
+		class="chat-messages-scroll-container">
+		{# messages_list renders the div#match-chat-messages-wrapper (AJAX target)
+		       and inside it, the ul.chat-messages-ul #}
+		{{ messages_list }}
+	</div>
+
+	{# This div will contain the message input form, separate from the scrollable messages #}
+	<div
+		class="chat-form-container">
+		{# message_form renders div#match-message-form-wrapper (form's own wrapper) #}
+		{{ message_form }}
+	</div>
+
+</div>

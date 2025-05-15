@@ -1,0 +1,8 @@
+name: Match Chat
+type: module
+description: 'Provides one-to-one chat functionality using custom entities.'
+core_version_requirement: ^10
+package: User Match
+
+dependencies:
+  - drupal:user

@@ -1,0 +1,6 @@
+access match chat:
+  title: 'Access Match Chat'
+  description: 'Allows users to access and use the chat functionality.'
+start new match chats:
+  title: 'Start new match chats'
+  description: 'Allows users to initiate new chat conversations with other users.'

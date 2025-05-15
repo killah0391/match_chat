@@ -1,0 +1,208 @@
+<?php
+
+/**
+ * @file
+ * Contains match_chat.module.
+ */
+
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\file\FileInterface; // Make sure this is at the top
+
+/**
+ * Implements hook_help().
+ */
+function match_chat_help($route_name, RouteMatchInterface $route_match)
+{
+  switch ($route_name) {
+    case 'help.page.match_chat':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Provides one-to-one chat functionality using custom entities. Users can start chats and send messages within threads.') . '</p>';
+      return $output;
+    default:
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function match_chat_theme()
+{
+  return [
+    'match_thread' => [
+      'render element' => 'elements',
+      'variables' => [
+        'thread' => NULL,
+        'messages_list' => NULL,
+        'message_form' => NULL,
+      ],
+    ],
+    'match_message' => [
+      'render element' => 'elements',
+      'variables' => [
+        'message_entity' => NULL,
+        'content' => NULL,
+        'sender_name' => NULL,
+        'message_text' => NULL,
+        'created_formatted' => NULL,
+        'is_sender' => FALSE,
+      ],
+    ],
+  ];
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_presave().
+ */
+function match_chat_match_message_presave(EntityInterface $entity)
+{
+  /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message */
+  $message = $entity;
+  $file_usage = \Drupal::service('file.usage');
+
+  // 1. Set newly uploaded files to permanent status.
+  // File usage will be added in hook_insert() or hook_update().
+  if ($message->hasField('chat_images') && !$message->get('chat_images')->isEmpty()) {
+    foreach ($message->get('chat_images') as $file_item) {
+      if ($file_item->entity instanceof FileInterface) {
+        /** @var \Drupal\file\FileInterface $file */
+        $file = $file_item->entity;
+        if ($file->isTemporary()) {
+          $file->setPermanent();
+          $file->save();
+        }
+      }
+    }
+  }
+
+  // 2. Handle removed files if the entity is being updated (not new).
+  // For existing entities, $message->id() is available.
+  if (!$message->isNew() && isset($message->original) && $message->original instanceof EntityInterface) {
+    /** @var \Drupal\match_chat\Entity\MatchMessageInterface $original_message */
+    $original_message = $message->original;
+
+    if ($original_message->hasField('chat_images') && $message->hasField('chat_images')) {
+      $current_fids = [];
+      foreach ($message->get('chat_images') as $file_item) {
+        if ($file_item->target_id) {
+          $current_fids[] = $file_item->target_id;
+        }
+      }
+
+      $original_fids = [];
+      foreach ($original_message->get('chat_images') as $file_item) {
+        if ($file_item->target_id) {
+          $original_fids[] = $file_item->target_id;
+        }
+      }
+
+      $removed_fids = array_diff($original_fids, $current_fids);
+      if (!empty($removed_fids)) {
+        $files_to_remove_usage = \Drupal::entityTypeManager()->getStorage('file')->loadMultiple($removed_fids);
+        foreach ($files_to_remove_usage as $file_to_remove) {
+          if ($file_to_remove instanceof FileInterface) {
+            $file_usage->delete($file_to_remove, 'match_chat', 'match_message', $message->id());
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_insert().
+ *
+ * Called after a new entity has been saved.
+ */
+function match_chat_match_message_insert(EntityInterface $entity)
+{
+  /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message */
+  $message = $entity;
+  $file_usage = \Drupal::service('file.usage');
+
+  // Add file usage for all files on the newly inserted entity.
+  // $message->id() is now available.
+  if ($message->hasField('chat_images') && !$message->get('chat_images')->isEmpty()) {
+    foreach ($message->get('chat_images') as $file_item) {
+      if ($file_item->entity instanceof FileInterface) {
+        /** @var \Drupal\file\FileInterface $file */
+        $file = $file_item->entity;
+        // Ensure file is permanent (presave should have handled this, but good for safety)
+        if (!$file->isPermanent()) {
+          $file->setPermanent();
+          $file->save();
+        }
+        $file_usage->add($file, 'match_chat', 'match_message', $message->id());
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_update().
+ *
+ * Called after an existing entity has been saved.
+ */
+function match_chat_match_message_update(EntityInterface $entity)
+{
+  /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message */
+  $message = $entity;
+  $file_usage = \Drupal::service('file.usage');
+
+  // Handle newly added files during an update.
+  // Removed files' usage is handled in presave.
+  // Existing files' usage was handled on insert or previous update.
+  if (
+    isset($message->original) && $message->original instanceof EntityInterface &&
+    $message->hasField('chat_images') && $message->original->hasField('chat_images')
+  ) {
+
+    /** @var \Drupal\match_chat\Entity\MatchMessageInterface $original_message */
+    $original_message = $message->original;
+
+    $current_file_references = $message->get('chat_images')->referencedEntities();
+    $original_file_references = $original_message->get('chat_images')->referencedEntities();
+
+    $current_fids = array_map(function ($file) {
+      return $file->id();
+    }, $current_file_references);
+    $original_fids = array_map(function ($file) {
+      return $file->id();
+    }, $original_file_references);
+
+    $added_fids = array_diff($current_fids, $original_fids);
+
+    if (!empty($added_fids)) {
+      $newly_added_files = \Drupal::entityTypeManager()->getStorage('file')->loadMultiple($added_fids);
+      foreach ($newly_added_files as $file) {
+        if ($file instanceof FileInterface) {
+          // Ensure file is permanent (presave should have handled this)
+          if (!$file->isPermanent()) {
+            $file->setPermanent();
+            $file->save();
+          }
+          $file_usage->add($file, 'match_chat', 'match_message', $message->id());
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_delete().
+ */
+function match_chat_match_message_delete(EntityInterface $entity)
+{
+  /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message */
+  $message = $entity;
+
+  if ($message->hasField('chat_images') && !$message->get('chat_images')->isEmpty()) {
+    $file_usage = \Drupal::service('file.usage');
+    foreach ($message->get('chat_images') as $file_item) {
+      if ($file_item->entity instanceof FileInterface) {
+        $file_usage->delete($file_item->entity, 'match_chat', 'match_message', $message->id());
+      }
+    }
+  }
+}

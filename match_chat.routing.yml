@@ -1,0 +1,23 @@
+match_chat.start_chat:
+  path: '/chat/start/{user}'
+  defaults:
+    _controller: '\Drupal\match_chat\Controller\MatchChatController::startChat'
+    _title: 'Start Chat'
+  requirements:
+    _permission: 'start new match chats'
+  options:
+    parameters:
+      user:
+        type: entity:user
+
+match_chat.view_thread:
+  path: '/chat/thread/{match_thread_uuid}'
+  defaults:
+    _controller: '\Drupal\match_chat\Controller\MatchChatController::viewThread'
+    _title_callback: '\Drupal\match_chat\Controller\MatchChatController::getThreadTitle'
+  requirements:
+    _permission: 'access match chat'
+  options:
+    parameters:
+      match_thread_uuid:
+        type: string # We will load the entity manually by UUID in the controller

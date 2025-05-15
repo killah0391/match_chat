@@ -1,0 +1,161 @@
+.match-chat-thread-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 500px;
+  /* Example fixed height for the whole chat box */
+  /* Or use viewport units e.g., height: 70vh; max-height: 600px; */
+  border: 1px solid #e0e0e0;
+  border-radius: 5px;
+  background-color: #f9f9f9;
+  /* Light background for the whole chat */
+  margin-bottom: 20px;
+  /* Space below the chat box */
+}
+
+.chat-with-header {
+  padding: 10px 15px;
+  border-bottom: 1px solid #e0e0e0;
+  background-color: #f1f1f1;
+  /* Slightly different for header */
+  flex-shrink: 0;
+  /* Prevent header from shrinking */
+}
+
+.chat-with-header h3 {
+  margin: 0;
+  font-size: 1.2em;
+  color: #333;
+}
+
+.chat-messages-scroll-container {
+  flex-grow: 1;
+  /* Allows this area to take available vertical space */
+  overflow-y: auto;
+  /* Adds vertical scrollbar when content exceeds height */
+  padding: 10px 15px;
+  background-color: #ffffff;
+  /* White background for messages area */
+  min-height: 100px;
+  /* Ensure it has some height */
+}
+
+/* This is the div that gets replaced by AJAX, wrapper of the ul */
+#match-chat-messages-wrapper.chat-messages-list-inner-content {
+  /* No specific styles needed here unless for direct children spacing */
+}
+
+ul.chat-messages-ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+ul.chat-messages-ul li {
+  /* Individual messages (match_message.html.twig) will handle their own styling.
+   This li is just a container. */
+  padding: 0;
+  /* Remove any default li padding */
+  margin: 0;
+  /* Remove any default li margin */
+}
+
+ul.chat-messages-ul li:not(:last-child) .match-chat-message {
+  /* Add space between messages if .match-chat-message doesn't have enough bottom margin by itself */
+  /* margin-bottom: 10px; */
+  /* This is handled by .match-chat-message already */
+}
+
+
+.chat-form-container {
+  padding: 15px;
+  border-top: 1px solid #e0e0e0;
+  background-color: #f1f1f1;
+  /* Matches header background */
+  flex-shrink: 0;
+  /* Prevent form area from shrinking */
+}
+
+/* Ensure message content within each bubble wraps correctly */
+/* This rule should be with your .match-chat-message styles, often in match_message.html.twig's style block
+ or your theme's CSS for that component. */
+.match-chat-message .message-content {
+  word-wrap: break-word;
+  /* Older browsers */
+  overflow-wrap: break-word;
+  /* Standard property */
+  white-space: pre-wrap;
+  /* Respects newlines and continuous spaces, and wraps */
+}
+
+/* Styles for .match-chat-message, .message-sent, .message-received, etc.,
+ from match_message.html.twig should continue to work. */
+.match-chat-message {
+  border: 1px solid #ccc;
+  padding: 10px;
+  margin-bottom: 10px;
+  /* Space between message bubbles */
+  border-radius: 8px;
+  /* Slightly more rounded */
+  max-width: 75%;
+  /* Max width of a message bubble */
+  clear: both;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  /* Subtle shadow */
+}
+
+.message-sent {
+  background-color: #dcf8c6;
+  /* Light green for sent */
+  border-color: #c4e9a9;
+  float: right;
+  margin-left: 25%;
+}
+
+.message-received {
+  background-color: #e9e9eb;
+  /* Light grey for received */
+  border-color: #dcdcdc;
+  float: left;
+  margin-right: 25%;
+}
+
+.message-sender {
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-bottom: 4px;
+  color: #555;
+}
+
+.message-timestamp {
+  font-size: 0.8em;
+  color: #888;
+  /* Lighter timestamp */
+  margin-top: 5px;
+  text-align: right;
+  /* Default alignment */
+}
+
+.message-sent .message-timestamp {
+  text-align: right;
+}
+
+.message-received .message-timestamp {
+  /* For received messages, timestamp might be better on the left under sender or right as well */
+  text-align: left;
+  /* If you prefer it left for received */
+}
+
+.chat-message-images {
+  margin-top: 8px;
+}
+
+.chat-image-attachment {
+  max-width: 120px;
+  max-height: 120px;
+  border: 1px solid #b0b0b0;
+  /* Slightly darker border for images */
+  margin-right: 5px;
+  margin-bottom: 5px;
+  border-radius: 4px;
+  object-fit: cover;
+}

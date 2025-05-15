@@ -1,0 +1,51 @@
+{#
+/**
+ * @file
+ * Default theme implementation for a single match message.
+ *
+ * Available variables:
+ * - message_entity: The full MatchMessage entity. (Not used directly in this basic example)
+ * - content: Pre-rendered content of the message (if using entity view builder).
+ * - sender_name: The display name of the sender.
+ * - message_text: The raw text of the message.
+ * - created_formatted: Formatted creation time of the message.
+ * - is_sender: Boolean, TRUE if the current user is the sender of this message.
+ * - attributes: HTML attributes for the main container.
+ *
+ * @see template_preprocess_match_message()
+ */
+#}
+{%
+  set message_classes = [
+    'match-chat-message',
+    is_sender ? 'message-sent' : 'message-received',
+  ]
+%}
+<div{{attributes.addClass(message_classes)}}>
+	<div class="message-sender">{{ sender_name }}</div>
+	{% if message_text %}
+		<div class="message-content">{{ message_text|nl2br }}</div>
+	{% endif %}
+
+	{# Display uploaded images #}
+	{% if message_entity.chat_images is not empty and message_entity.chat_images.isEmpty == false %}
+		<div class="chat-message-images">
+			{% for file_item in message_entity.chat_images %}
+				{% set image_file = file_item.entity %}
+				{% if image_file and image_file.uri.value %}
+					{% set image_render_array = {
+            '#theme': 'image_style',
+            '#style_name': 'medium',
+            '#uri': image_file.uri.value,
+            '#alt': 'Chat image'|t,
+            '#attributes': { 'class': ['chat-image-attachment'] },
+          } %}
+					{{ image_render_array }}
+				{% endif %}
+			{% endfor %}
+		</div>
+	{% endif %}
+
+	<div class="message-timestamp">{{ created_formatted }}</div>
+</div>
+

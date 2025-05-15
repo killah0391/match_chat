@@ -1,0 +1,5 @@
+match_chat_styles:
+  version: 1.x
+  css:
+    theme:
+      css/match_chat.css: {}
