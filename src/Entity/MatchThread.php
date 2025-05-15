@@ -172,6 +172,19 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
   /**
    * {@inheritdoc}
    */
+  public function isParticipant(UserInterface $account)
+  {
+    $user1_id = $this->get('user1')->target_id;
+    $user2_id = $this->get('user2')->target_id;
+    $account_id = $account->id();
+
+    // Check if the provided account's ID matches either user1 or user2.
+    return ($account_id == $user1_id || $account_id == $user2_id);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function setUser2($uid)
   { // Parameter should be $uid or UserInterface
     $this->set('user2', $uid);

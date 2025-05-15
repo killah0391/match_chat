@@ -5,8 +5,11 @@
  * Contains match_chat.module.
  */
 
+use Drupal\user\UserInterface;
+use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\file\FileInterface; // Make sure this is at the top
 
 /**
@@ -204,5 +207,175 @@ function match_chat_match_message_delete(EntityInterface $entity)
         $file_usage->delete($file_item->entity, 'match_chat', 'match_message', $message->id());
       }
     }
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_access() for match_message entities.
+ *
+ * Grants 'view' access to messages for participants of the thread.
+ */
+function match_chat_match_message_access(EntityInterface $entity, $operation, AccountInterface $account)
+{
+  /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message */
+  $message = $entity;
+
+  // Only apply special logic for the 'view' operation.
+  if ($operation === 'view') {
+    // Anonymous users should not be able to view any chat messages directly.
+    if ($account->isAnonymous()) {
+      return AccessResult::forbidden('Anonymous users cannot view chat messages.')->addCacheableDependency($message);
+    }
+
+    // Load the full User entity for the account performing the access check.
+    // This ensures we can pass it to isParticipant() if needed, though AccountInterface->id() is often enough.
+    $user_entity_to_check = \Drupal::entityTypeManager()->getStorage('user')->load($account->id());
+    if (!$user_entity_to_check instanceof UserInterface) {
+      // This case should be rare for authenticated users but is a safeguard.
+      return AccessResult::neutral('Accessing account is not a recognized user.')->addCacheableDependency($message);
+    }
+
+    /** @var \Drupal\match_chat\Entity\MatchThreadInterface|null $thread */
+    $thread_field_item = $message->get('thread_id');
+    if ($thread_field_item->isEmpty() || !$thread_field_item->entity instanceof \Drupal\match_chat\Entity\MatchThreadInterface) {
+      // Message is not properly linked to a thread.
+      \Drupal::logger('match_chat')->warning('Message ID @mid has no valid thread for access check.', ['@mid' => $message->id()]);
+      return AccessResult::forbidden('Message is not associated with a valid thread.')->addCacheableDependency($message);
+    }
+    $thread = $thread_field_item->entity;
+
+    // Check if the current user is a participant in the thread.
+    if ($thread->isParticipant($user_entity_to_check)) {
+      return AccessResult::allowed()
+        ->cachePerUser() // Access depends on the user and permissions.
+        ->addCacheableDependency($thread)   // Cache depends on the thread entity.
+        ->addCacheableDependency($message)  // Cache depends on the message entity.
+        ->addCacheableDependency($user_entity_to_check); // Cache depends on the user being checked.
+    } else {
+      // User is not a participant.
+      return AccessResult::forbidden('You are not a participant of this chat thread.')->addCacheableDependency($message)->addCacheableDependency($thread)->addCacheableDependency($user_entity_to_check);
+    }
+  }
+
+  // For operations other than 'view' (e.g., 'update', 'delete'),
+  // return Neutral to let other access mechanisms (like permissions) take over.
+  // You might add more specific logic here later if needed (e.g., only sender can edit).
+  return AccessResult::neutral()->addCacheableDependency($entity);
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_access() for match_thread entities.
+ *
+ * Grants 'view' access to threads for their participants (user1 or user2).
+ */
+function match_chat_match_thread_access(EntityInterface $entity, $operation, AccountInterface $account)
+{
+  /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+  $thread = $entity;
+
+  // Only apply special logic for the 'view' operation.
+  if ($operation === 'view') {
+    if ($account->isAnonymous()) {
+      return AccessResult::forbidden('Anonymous users cannot view chat threads.')->addCacheableDependency($thread);
+    }
+
+    $user_entity_to_check = \Drupal::entityTypeManager()->getStorage('user')->load($account->id());
+    if (!$user_entity_to_check instanceof UserInterface) {
+      return AccessResult::neutral('Accessing account is not a recognized user.')->addCacheableDependency($thread);
+    }
+
+    // Use the isParticipant() method from the MatchThread entity.
+    if ($thread->isParticipant($user_entity_to_check)) {
+      return AccessResult::allowed()
+        ->cachePerUser() // Access depends on the specific user.
+        ->addCacheableDependency($thread) // Cache depends on the thread.
+        ->addCacheableDependency($user_entity_to_check); // Cache depends on the user.
+    } else {
+      return AccessResult::forbidden('You are not a participant of this chat thread.')->addCacheableDependency($thread)->addCacheableDependency($user_entity_to_check);
+    }
+  }
+
+  // For other operations, let other access mechanisms decide.
+  return AccessResult::neutral()->addCacheableDependency($entity);
+}
+
+/**
+ * Implements hook_file_download().
+ *
+ * Controls access to private files associated with match_message entities.
+ * Only participants of the thread to which the message belongs should be
+ * able to download/view the file.
+ */
+function match_chat_file_download($uri)
+{
+  // Check if the file URI is within our module's private path.
+  // This ensures we only act on files relevant to this module.
+  if (strpos($uri, 'private://match_chat_images/') !== 0) {
+    // Not our file, let other modules handle it or apply default access.
+    return NULL; // Returning NULL delegates to other modules or default behavior.
+  }
+
+  $current_user_account = \Drupal::currentUser();
+  // Deny access if the user is anonymous.
+  if ($current_user_account->isAnonymous()) {
+    return -1; // -1 signifies access denied.
+  }
+
+  // Load the full User entity for the current user.
+  $current_user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($current_user_account->id());
+  if (!$current_user_entity instanceof UserInterface) {
+    return -1; // Should not happen for authenticated users, but acts as a safeguard.
+  }
+
+  // Load the file entity by its URI.
+  /** @var \Drupal\file\FileInterface[] $files */
+  $files = \Drupal::entityTypeManager()->getStorage('file')->loadByProperties(['uri' => $uri]);
+  if (empty($files)) {
+    // File not found in the database or URI is incorrect.
+    return -1;
+  }
+  /** @var \Drupal\file\FileInterface $file */
+  $file = reset($files);
+  $file_id = $file->id();
+
+  // Find the match_message entity that references this file in its 'chat_images' field.
+  // We disable entity access checks here because this hook *is* the access check.
+  $message_storage = \Drupal::entityTypeManager()->getStorage('match_message');
+  $query = $message_storage->getQuery()
+    ->accessCheck(FALSE) // Important: Perform our own access check.
+    ->condition('chat_images.target_id', $file_id) // Corrected field name.
+    ->range(0, 1); // We only need one such message.
+  $message_ids = $query->execute();
+
+  if (empty($message_ids)) {
+    // No message found that uses this specific file in the 'chat_images' field.
+    return -1;
+  }
+  $message_id = reset($message_ids);
+  /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message */
+  $message = $message_storage->load($message_id);
+
+  if (!$message instanceof \Drupal\match_chat\Entity\MatchMessageInterface) {
+    // Message entity could not be loaded, though its ID was found.
+    return -1;
+  }
+
+  // Get the thread associated with the message.
+  /** @var \Drupal\match_chat\Entity\MatchThreadInterface|null $thread */
+  $thread_field_item = $message->get('thread_id');
+  if ($thread_field_item->isEmpty() || !$thread_field_item->entity instanceof \Drupal\match_chat\Entity\MatchThreadInterface) {
+    \Drupal::logger('match_chat')->warning('Message ID @mid has no valid thread for file download access check.', ['@mid' => $message->id()]);
+    return -1; // Message is not properly linked to a thread.
+  }
+  $thread = $thread_field_item->entity;
+
+  // Check if the current user is a participant in the thread using the method on the Thread entity.
+  if ($thread->isParticipant($current_user_entity)) {
+    // Returning an empty array grants download access and lets Drupal serve the file
+    // with appropriate headers (e.g., Content-Type, Content-Disposition).
+    return [];
+  } else {
+    // User is not a participant of the thread.
+    return -1;
   }
 }

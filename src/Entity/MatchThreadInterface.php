@@ -5,6 +5,7 @@ namespace Drupal\match_chat\Entity;
 use Drupal\Core\Entity\ContentEntityInterface;
 use Drupal\Core\Entity\EntityChangedInterface;
 use Drupal\user\EntityOwnerInterface;
+use Drupal\user\UserInterface;
 
 /**
  * Provides an interface for defining Match Thread entities.
@@ -76,4 +77,15 @@ interface MatchThreadInterface extends ContentEntityInterface, EntityChangedInte
    * UUID of the Match Thread.
    */
   public function getUuid();
+
+  /**
+   * Checks if the given user is a participant in this thread.
+   *
+   * @param \Drupal\user\UserInterface $account
+   * The user account to check.
+   *
+   * @return bool
+   * TRUE if the user is a participant, FALSE otherwise.
+   */
+  public function isParticipant(UserInterface $account);
 }
