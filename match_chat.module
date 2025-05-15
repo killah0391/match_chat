@@ -39,6 +39,7 @@ function match_chat_theme()
         'thread' => NULL,
         'messages_list' => NULL,
         'message_form' => NULL,
+        'current_user' => NULL,
       ],
     ],
     'match_message' => [
@@ -276,7 +277,8 @@ function match_chat_match_thread_access(EntityInterface $entity, $operation, Acc
   // Only apply special logic for the 'view' operation.
   if ($operation === 'view') {
     if ($account->isAnonymous()) {
-      return AccessResult::forbidden('Anonymous users cannot view chat threads.')->addCacheableDependency($thread);
+      return AccessResult::forbidden('Anonymous users cannot view chat threads.')
+        ->addCacheableDependency($thread); // Good to add dependency on the object access is denied for
     }
 
     $user_entity_to_check = \Drupal::entityTypeManager()->getStorage('user')->load($account->id());
@@ -291,7 +293,9 @@ function match_chat_match_thread_access(EntityInterface $entity, $operation, Acc
         ->addCacheableDependency($thread) // Cache depends on the thread.
         ->addCacheableDependency($user_entity_to_check); // Cache depends on the user.
     } else {
-      return AccessResult::forbidden('You are not a participant of this chat thread.')->addCacheableDependency($thread)->addCacheableDependency($user_entity_to_check);
+      return AccessResult::forbidden('You are not a participant of this chat thread.')
+        ->addCacheableDependency($thread) // Already good
+        ->addCacheableDependency($user_entity_to_check); // Add if not there
     }
   }
 

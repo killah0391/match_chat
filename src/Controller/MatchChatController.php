@@ -178,15 +178,22 @@ class MatchChatController extends ControllerBase
     $messages_render_array = $this->renderMessages($thread);
     $form = $this->formBuilder()->getForm('\Drupal\match_chat\Form\MatchMessageForm', $thread);
 
+    $current_user_for_template = NULL;
+    if (!$this->currentUser->isAnonymous()) {
+      $current_user_for_template = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
+    }
+
     return [
       '#theme' => 'match_thread',
       '#thread' => $thread,
       '#messages_list' => $messages_render_array['messages_list'],
       '#message_form' => $form,
+      '#current_user' => $current_user_for_template, // <<< PASS THE USER ENTITY
       '#attached' => [
         'library' => [
-          'core/drupal.ajax', // For AJAX form submission
-          'match_chat/match_chat_styles', // <<< Attach your new library here
+          'core/drupal.ajax',
+          'match_chat/match_chat_styles',
+          'match_chat/match_chat_поведения',
         ],
       ],
     ];
@@ -268,13 +275,15 @@ class MatchChatController extends ControllerBase
     if (!empty($threads)) {
       /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
       $thread = reset($threads);
-      $user1 = $thread->getUser1();
-      $user2 = $thread->getUser2();
-      $current_user_id = $this->currentUser->id();
+      if ($thread) {
+        $user1 = $thread->get('user1')->entity; // Or $thread->getUser1()
+        $user2 = $thread->get('user2')->entity; // Or $thread->getUser2()
+        $current_user_id = $this->currentUser->id();
 
-      if ($user1 && $user2) {
-        $other_user = ($user1->id() == $current_user_id) ? $user2 : $user1;
-        return $this->t('Chat with @username', ['@username' => $other_user->getDisplayName()]);
+        if ($user1 && $user2) {
+          $other_user = ($user1->id() == $current_user_id) ? $user2 : $user1;
+          return $this->t('Chat with @username', ['@username' => $other_user->getDisplayName()]);
+        }
       }
     }
     return $this->t('Chat');
