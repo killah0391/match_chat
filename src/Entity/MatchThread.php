@@ -130,20 +130,6 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
       ->setDisplayConfigurable('form', TRUE)
       ->setDisplayConfigurable('view', TRUE);
 
-    $fields['user1_blocked_user2'] = BaseFieldDefinition::create('boolean')
-      ->setLabel(t('User 1 Blocked User 2'))
-      ->setDescription(t('Whether User 1 has blocked User 2 in this thread.'))
-      ->setDefaultValue(FALSE)
-      ->setDisplayConfigurable('form', FALSE)
-      ->setDisplayConfigurable('view', FALSE);
-
-    $fields['user2_blocked_user1'] = BaseFieldDefinition::create('boolean')
-      ->setLabel(t('User 2 Blocked User 1'))
-      ->setDescription(t('Whether User 2 has blocked User 1 in this thread.'))
-      ->setDefaultValue(FALSE)
-      ->setDisplayConfigurable('form', FALSE)
-      ->setDisplayConfigurable('view', FALSE);
-
     $fields['created'] = BaseFieldDefinition::create('created')
       ->setLabel((string) t('Created')) // Cast to string
       ->setDescription((string) t('The time that the entity was created.')); // Cast to string
