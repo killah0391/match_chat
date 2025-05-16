@@ -1,5 +1,15 @@
-match_chat_styles:
-  version: 1.x
+match_chat_styles: # Your existing library for CSS
+  version: 1.x # It's good practice to version your libraries
   css:
     theme:
       css/match_chat.css: {}
+
+match_chat_scrolltobottom: # Library for JavaScript behaviors (using "scrolltobottom" as "behaviors")
+  version: 1.x
+  js:
+    js/match_chat.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/once
+    - core/drupalSettings

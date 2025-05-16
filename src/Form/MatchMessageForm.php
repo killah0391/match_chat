@@ -14,6 +14,7 @@ use Drupal\match_chat\Entity\MatchThreadInterface;
 use Drupal\match_chat\Controller\MatchChatController;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\File\FileSystemInterface;
+use Drupal\Core\Ajax\MessageCommand;
 
 /**
  * Form for sending a new chat message.
@@ -121,14 +122,15 @@ class MatchMessageForm extends FormBase
       '#title' => $this->t('Message'),
       '#title_display' => 'invisible',
       '#required' => FALSE, // Message not required if image is uploaded
-      '#attributes' => ['placeholder' => $this->t('Type your message...')],
+      '#attributes' => ['placeholder' => $this->t('Type your message...'), 'style' => 'resize: none;'],
+      '#resizable' => NULL,
+      '#rows' => 3,
     ];
 
     // New file upload field
     $form['chat_images'] = [
       '#type' => 'managed_file',
-      '#title' => $this->t('Attach images (max 3)'),
-      '#multiple' => TRUE, // Allows multiple files to be selected/uploaded to the widget
+      '#title' => $this->t('Attach image'),
       '#upload_location' => 'private://match_chat_images/', // Ensure this path is valid & writable
       '#upload_validators' => [
         'file_validate_extensions' => ['png gif jpg jpeg'],
@@ -181,7 +183,7 @@ class MatchMessageForm extends FormBase
     }
 
     if (!empty($image_fids) && count($image_fids) > 3) {
-      $form_state->setErrorByName('chat_images', $this->t('You can upload a maximum of 3 images.'));
+      $form_state->setErrorByName('chat_images', $this->t('You can upload a maximum of 1 image.'));
     }
   }
 
@@ -192,40 +194,51 @@ class MatchMessageForm extends FormBase
   {
     $response = new AjaxResponse();
 
-    // If there are validation errors from validateForm(), re-render the form with errors.
+    // Check for validation errors FIRST.
     if ($form_state->hasAnyErrors()) {
+      \Drupal::logger('match_chat')->debug('AJAX callback: Form has validation errors.');
+
+      // Option 1: Let Drupal re-render the form with inline errors.
+      // The $form array should now contain error markup if the theme supports it well for AJAX.
+      // This command replaces the form's HTML with its new state (including error classes/messages).
       $response->addCommand(new ReplaceCommand('#match-message-form-wrapper', $form));
-      return $response;
+
+      // Option 2: Explicitly add error messages to the Drupal messages area.
+      // This is often more reliable for ensuring the user sees the message,
+      // especially if inline errors within the form are subtle or not styled prominently by the theme.
+      // We can combine this with Option 1.
+      $errors = $form_state->getErrors();
+      foreach ($errors as $field_name => $error_message) {
+        // The MessageCommand will add the error to the standard Drupal messages region.
+        $response->addCommand(new MessageCommand($error_message, NULL, ['type' => 'error']));
+        // Log which error is being sent
+        \Drupal::logger('match_chat')->debug('AJAX MessageCommand: Added error for field "@field": @message', ['@field' => $field_name, '@message' => $error_message]);
+      }
+
+      return $response; // IMPORTANT: Return immediately when there are errors.
     }
 
-    // Values should have been cleared from $form_state by the modified submitForm().
-    // setRebuild(TRUE) signals that the FormBuilder should use this (now cleared) $form_state
-    // to build a fresh form, not repopulating from the original user input that was just submitted.
+    // If no errors, proceed with successful submission logic:
     $form_state->setRebuild(TRUE);
 
-    // Re-render messages list
+    // Update the messages list
     if ($this->thread && $this->thread->id()) {
       $thread_id = $this->thread->id();
-      /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
       $thread = $this->entityTypeManager->getStorage('match_thread')->load($thread_id);
       if ($thread) {
-        /** @var \Drupal\match_chat\Controller\MatchChatController $controller */
         $controller = \Drupal::classResolver(MatchChatController::class)->create(\Drupal::getContainer());
-        $build = $controller->renderMessages($thread); // $build['messages_list'] is the render array
-
-        // Add these lines to log the HTML output:
+        $build = $controller->renderMessages($thread);
         $messages_html_output = \Drupal::service('renderer')->renderRoot($build['messages_list']);
-        \Drupal::logger('match_chat')->debug('AJAX - HTML for messages_list replacement: <pre>@html</pre>', ['@html' => htmlentities($messages_html_output)]);
-
-        // The command should use the rendered HTML for replacement
         $response->addCommand(new ReplaceCommand('#match-chat-messages-wrapper', $messages_html_output));
       }
     }
 
-    // Rebuild the form using the form_builder service.
-    // The $form_state has setRebuild(TRUE), so the rebuilt form will be fresh.
+    // Rebuild and replace the form (for clearing fields on success)
     $rebuilt_form = \Drupal::formBuilder()->rebuildForm($this->getFormId(), $form_state, $form);
     $response->addCommand(new ReplaceCommand('#match-message-form-wrapper', $rebuilt_form));
+
+    // Scroll to bottom
+    $response->addCommand(new InvokeCommand('.chat-messages-scroll-container', 'matchChatScrollToBottom'));
 
     return $response;
   }
