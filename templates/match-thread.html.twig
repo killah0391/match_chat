@@ -1,62 +1,28 @@
-{%
-  set thread_wrapper_classes = [
-    'match-chat-thread-wrapper',
-  ]|merge(attributes.offsetGet('class')|default([]))
-%}
-<div{{ attributes.addClass(thread_wrapper_classes) }}>
-
-	{# Determine current user ID.
-		     Prioritize current_user if passed from controller,
-		     otherwise fallback to app.current_user.
-		     Default to 0 (anonymous) if neither is a valid authenticated user.
-		     Access control should prevent anonymous users or non-participants from reaching here.
-		  #}
-	{% set current_user_id_to_check = 0 %}
-	{% if current_user and current_user.id() != 0 %}
-		{% set current_user_id_to_check = current_user.id() %}
-	{% elseif app.current_user and app.current_user.id() != 0 %}
-		{% set current_user_id_to_check = app.current_user.id() %}
-	{% endif %}
-
-	{# Header displaying the "other user" #}
-	{% if thread.user1.entity and thread.user2.entity %}
-		{% set user1_entity = thread.user1.entity %}
-		{% set user2_entity = thread.user2.entity %}
-
-		{% set final_other_user = null %}
-		{# Explicitly determine the other user based on the current user's ID #}
-		{% if user1_entity.id() == current_user_id_to_check %}
-			{% set final_other_user = user2_entity %}
-		{% elseif user2_entity.id() == current_user_id_to_check %}
-			{% set final_other_user = user1_entity %}
+{# Ensure you have access to variables like:
+  - other_user_entity
+  - has_current_user_blocked_other
+  - is_current_user_blocked_by_other
+  - messages_list
+  - message_form
+#}
+{{kint()}}
+<div class="match-chat-thread-wrapper">
+	<div class="chat-with-header">
+		<h3>{{ 'Chat with @username'|t({'@username': other_user_entity.name.value}) }}</h3>
+		{# Display block status messages #}
+		{% if has_current_user_blocked_other %}
+			<div class="messages messages--status">{{ 'You have blocked @username.'|t({'@username': other_user_entity.displayName.value}) }}</div>
+		{% elseif is_current_user_blocked_by_other %}
+			<div class="messages messages--warning">{{ '@username has blocked you.'|t({'@username': other_user_entity.displayName.value}) }}</div>
 		{% endif %}
+	</div>
 
+	<div class="chat-messages-scroll-container">
+		{{ messages_list }}
+		{# This should render the div with id="match-chat-messages-wrapper" inside #}
+	</div>
 
-    <div class="chat-with-header">
-      {% if final_other_user %}
-        <h3>{{ 'Chat with @username'|t({'@username': final_other_user.getDisplayName()}) }}</h3>
-      {% else %}
-        {# Fallback title if the other user couldn't be determined.
-           This might happen if current_user_id_to_check is 0 or doesn't match either participant.
-           Access control should prevent users not part of the thread from viewing. #}
-        <h3>{{ 'Chat'|t }}</h3>
-      {% endif %}
-    </div>
-  {% else %}
-    {# Fallback if one or both participant entities cannot be loaded from the thread #}
-    <div class="chat-with-header">
-      <h3>{{ 'Chat'|t }}</h3>
-    </div>
-  {% endif %}
-
-  {# Scrollable messages area #}
-  <div class="chat-messages-scroll-container">
-    {{ messages_list }} {# This renders div#match-chat-messages-wrapper with the ul inside #}
-  </div>
-
-  {# Form input area #}
-  <div class="chat-form-container">
-    {{ message_form }} {# This renders div#match-message-form-wrapper with the form inside #}
-  </div>
-
+	<div class="chat-form-container">
+		{{ message_form }}
+	</div>
 </div>

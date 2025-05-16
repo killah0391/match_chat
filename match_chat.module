@@ -34,16 +34,21 @@ function match_chat_theme()
 {
   return [
     'match_thread' => [
-      'render element' => 'elements',
       'variables' => [
-        'thread' => NULL,
-        'messages_list' => NULL,
-        'message_form' => NULL,
-        'current_user' => NULL,
+        'thread' => NULL, // The MatchThread entity
+        'messages_list' => NULL, // Render array for the messages
+        'message_form' => NULL, // Render array for the message input form
+        'current_user_entity' => NULL, // The current user entity
+        'other_user_entity' => NULL, // The other user entity in the chat
+        'has_current_user_blocked_other' => FALSE, // Boolean: current user blocked the other
+        'is_current_user_blocked_by_other' => FALSE, // Boolean: current user is blocked by the other
       ],
+      'template' => 'match-thread', // Assumes your template is named match-thread.html.twig
+      // Optional: define path if your templates are not in a 'templates' subdirectory
+      // 'path' => drupal_get_path('module', 'match_chat') . '/custom_template_path',
     ],
+    // Your existing 'match_message' theme hook definition should also be here if it's not already
     'match_message' => [
-      'render element' => 'elements',
       'variables' => [
         'message_entity' => NULL,
         'content' => NULL,
@@ -51,7 +56,9 @@ function match_chat_theme()
         'message_text' => NULL,
         'created_formatted' => NULL,
         'is_sender' => FALSE,
+        // Potentially add image variables here if not handled by 'content'
       ],
+      'template' => 'match-message', // Assumes match-message.html.twig
     ],
   ];
 }
@@ -109,6 +116,45 @@ function match_chat_match_message_presave(EntityInterface $entity)
             $file_usage->delete($file_to_remove, 'match_chat', 'match_message', $message->id());
           }
         }
+      }
+    }
+  }
+  $thread_id = $message->getThreadId();
+  if (!$thread_id) {
+    // Should not happen if form validation is correct
+    return;
+  }
+
+  /** @var \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager */
+  $entity_type_manager = \Drupal::service('entity_type.manager');
+  /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+  $thread = $entity_type_manager->getStorage('match_thread')->load($thread_id);
+
+  /** @var \Drupal\user\UserInterface $sender */
+  $sender = $message->getOwner();
+
+  if ($thread && $sender) {
+    // Determine the other user in the thread
+    $user1 = $thread->getUser1();
+    $user2 = $thread->getUser2();
+    $other_user = NULL;
+
+    if ($user1 && $user1->id() == $sender->id()) {
+      $other_user = $user2;
+    } elseif ($user2 && $user2->id() == $sender->id()) {
+      $other_user = $user1;
+    }
+
+    if ($other_user) {
+      // Check if sender has blocked the other user
+      if ($thread->hasUserBlockedOther($sender)) {
+        // Prevent saving the message
+        throw new \LogicException(t('Cannot save message: Sender has blocked the recipient in this thread.'));
+      }
+      // Check if sender is blocked by the other user
+      if ($thread->isUserBlockedByOther($sender)) {
+        // Prevent saving the message
+        throw new \LogicException(t('Cannot save message: Sender is blocked by the recipient in this thread.'));
       }
     }
   }
