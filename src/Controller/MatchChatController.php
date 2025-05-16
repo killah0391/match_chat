@@ -6,14 +6,14 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Url;
-// use Drupal\Core\Utility\UuidGeneratorInterface; // REMOVE THIS LINE
-use Drupal\Component\Uuid\UuidInterface;        // ADD THIS LINE (from the Uuid component)
-use Drupal\user\UserInterface as DrupalUserInterface; // Alias to avoid conflict if you have your own UserInterface
+use Drupal\Component\Uuid\UuidInterface;
+use Drupal\user\UserInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Drupal\match_chat\Entity\MatchThreadInterface;
+use Drupal\user_match\Service\UserMatchService;
 
 /**
  * Controller for Match Chat.
@@ -36,6 +36,13 @@ class MatchChatController extends ControllerBase
   protected $currentUser;
 
   /**
+   * The user match service.
+   *
+   * @var \Drupal\user_match\Service\UserMatchService
+   */
+  protected $userMatchService;
+
+  /**
    * The UUID generator.
    *
    * @var \Drupal\Component\Uuid\UuidInterface  // UPDATE PHPDOC
@@ -51,12 +58,15 @@ class MatchChatController extends ControllerBase
    * The current user.
    * @param \Drupal\Component\Uuid\UuidInterface $uuid_generator  // UPDATE TYPE HINT
    * The UUID generator.
+   * @param \Drupal\user_match\Service\UserMatchService $user_match_service
+   * The user match service.
    */
-  public function __construct(EntityTypeManagerInterface $entity_type_manager, AccountInterface $current_user, UuidInterface $uuid_generator)
+  public function __construct(EntityTypeManagerInterface $entity_type_manager, AccountInterface $current_user, UuidInterface $uuid_generator, UserMatchService $user_match_service,)
   {
     $this->entityTypeManager = $entity_type_manager;
     $this->currentUser = $current_user;
     $this->uuidGenerator = $uuid_generator;
+    $this->userMatchService = $user_match_service;
   }
 
   /**
@@ -67,7 +77,8 @@ class MatchChatController extends ControllerBase
     return new static(
       $container->get('entity_type.manager'),
       $container->get('current_user'),
-      $container->get('uuid') // This service provides UuidInterface
+      $container->get('uuid'),
+      $container->get('user_match.service')
     );
   }
 
@@ -80,7 +91,7 @@ class MatchChatController extends ControllerBase
    * @return \Symfony\Component\HttpFoundation\RedirectResponse
    * A redirect response to the chat thread.
    */
-  public function startChat(DrupalUserInterface $user)
+  public function startChat(UserInterface $user)
   { // Ensure correct UserInterface alias if needed
     $currentUserAccount = $this->currentUser; // Use $this->currentUser which is AccountInterface
     $targetUser = $user;
@@ -88,6 +99,20 @@ class MatchChatController extends ControllerBase
     if ($currentUserAccount->id() == $targetUser->id()) {
       $this->messenger()->addWarning($this->t("You cannot start a chat with yourself."));
       return $this->redirect('<front>');
+    }
+
+    // Check recipient's message acceptance preference.
+    $acceptsOnlyFromMatches = FALSE;
+    if ($targetUser->hasField('field_accept_msg_from_matches') && !$targetUser->get('field_accept_msg_from_matches')->isEmpty()) {
+      $acceptsOnlyFromMatches = (bool) $targetUser->get('field_accept_msg_from_matches')->value;
+    }
+
+    if ($acceptsOnlyFromMatches) {
+      $isMutualMatch = $this->userMatchService->checkForMatch($currentUserAccount->id(), $targetUser->id());
+      if (!$isMutualMatch) {
+        $this->messenger()->addError($this->t('@username only accepts messages from mutual matches. You cannot start a chat at this time.', ['@username' => $targetUser->getAccountName()]));
+        return $this->redirect('<front>'); // Or redirect to a more appropriate page like user's profile.
+      }
     }
 
     $query = $this->entityTypeManager->getStorage('match_thread')->getQuery()
@@ -193,7 +218,7 @@ class MatchChatController extends ControllerBase
         'library' => [
           'core/drupal.ajax',
           'match_chat/match_chat_styles',
-          'match_chat/match_chat_поведения',
+          'match_chat/match_chat_scrolltobottom',
         ],
       ],
     ];

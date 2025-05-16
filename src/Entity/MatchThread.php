@@ -108,6 +108,42 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
       ->setDisplayConfigurable('form', TRUE)
       ->setDisplayConfigurable('view', TRUE);
 
+    $fields['user1_allows_uploads'] = BaseFieldDefinition::create('boolean')
+      ->setLabel(t('User 1 Allows Uploads'))
+      ->setDescription(t('Whether user 1 allows file uploads in this thread.'))
+      ->setDefaultValue(FALSE)
+      ->setDisplayOptions('form', [
+        'type' => 'boolean_checkbox',
+        'weight' => 10,
+      ])
+      ->setDisplayConfigurable('form', TRUE)
+      ->setDisplayConfigurable('view', TRUE);
+
+    $fields['user2_allows_uploads'] = BaseFieldDefinition::create('boolean')
+      ->setLabel(t('User 2 Allows Uploads'))
+      ->setDescription(t('Whether user 2 allows file uploads in this thread.'))
+      ->setDefaultValue(FALSE)
+      ->setDisplayOptions('form', [
+        'type' => 'boolean_checkbox',
+        'weight' => 11,
+      ])
+      ->setDisplayConfigurable('form', TRUE)
+      ->setDisplayConfigurable('view', TRUE);
+
+    $fields['user1_blocked_user2'] = BaseFieldDefinition::create('boolean')
+      ->setLabel(t('User 1 Blocked User 2'))
+      ->setDescription(t('Whether User 1 has blocked User 2 in this thread.'))
+      ->setDefaultValue(FALSE)
+      ->setDisplayConfigurable('form', FALSE)
+      ->setDisplayConfigurable('view', FALSE);
+
+    $fields['user2_blocked_user1'] = BaseFieldDefinition::create('boolean')
+      ->setLabel(t('User 2 Blocked User 1'))
+      ->setDescription(t('Whether User 2 has blocked User 1 in this thread.'))
+      ->setDefaultValue(FALSE)
+      ->setDisplayConfigurable('form', FALSE)
+      ->setDisplayConfigurable('view', FALSE);
+
     $fields['created'] = BaseFieldDefinition::create('created')
       ->setLabel((string) t('Created')) // Cast to string
       ->setDescription((string) t('The time that the entity was created.')); // Cast to string
@@ -197,5 +233,47 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
   public static function getCurrentUserId()
   {
     return [\Drupal::currentUser()->id()];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getUser1AllowsUploads(): bool
+  {
+    return (bool) $this->get('user1_allows_uploads')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setUser1AllowsUploads(bool $allow): self
+  {
+    $this->set('user1_allows_uploads', $allow);
+    return $this;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getUser2AllowsUploads(): bool
+  {
+    return (bool) $this->get('user2_allows_uploads')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setUser2AllowsUploads(bool $allow): self
+  {
+    $this->set('user2_allows_uploads', $allow);
+    return $this;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function bothParticipantsAllowUploads(): bool
+  {
+    return $this->getUser1AllowsUploads() && $this->getUser2AllowsUploads();
   }
 }

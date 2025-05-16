@@ -88,4 +88,50 @@ interface MatchThreadInterface extends ContentEntityInterface, EntityChangedInte
    * TRUE if the user is a participant, FALSE otherwise.
    */
   public function isParticipant(UserInterface $account);
+
+  /**
+   * Gets whether user 1 allows uploads in this thread.
+   *
+   * @return bool
+   * TRUE if user 1 allows uploads, FALSE otherwise.
+   */
+  public function getUser1AllowsUploads(): bool;
+
+  /**
+   * Sets whether user 1 allows uploads in this thread.
+   *
+   * @param bool $allow
+   * TRUE to allow uploads, FALSE otherwise.
+   *
+   * @return \Drupal\match_chat\Entity\MatchThreadInterface
+   * The called Match Thread entity.
+   */
+  public function setUser1AllowsUploads(bool $allow): self;
+
+  /**
+   * Gets whether user 2 allows uploads in this thread.
+   *
+   * @return bool
+   * TRUE if user 2 allows uploads, FALSE otherwise.
+   */
+  public function getUser2AllowsUploads(): bool;
+
+  /**
+   * Sets whether user 2 allows uploads in this thread.
+   *
+   * @param bool $allow
+   * TRUE to allow uploads, FALSE otherwise.
+   *
+   * @return \Drupal\match_chat\Entity\MatchThreadInterface
+   * The called Match Thread entity.
+   */
+  public function setUser2AllowsUploads(bool $allow): self;
+
+  /**
+   * Checks if both participants allow uploads in this thread.
+   *
+   * @return bool
+   * TRUE if both participants allow uploads, FALSE otherwise.
+   */
+  public function bothParticipantsAllowUploads(): bool;
 }

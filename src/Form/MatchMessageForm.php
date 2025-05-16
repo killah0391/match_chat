@@ -121,26 +121,57 @@ class MatchMessageForm extends FormBase
       '#type' => 'textarea',
       '#title' => $this->t('Message'),
       '#title_display' => 'invisible',
-      '#required' => FALSE, // Message not required if image is uploaded
+      '#required' => FALSE, // Message not required if image is uploaded or uploads allowed
       '#attributes' => ['placeholder' => $this->t('Type your message...'), 'style' => 'resize: none;'],
       '#resizable' => NULL,
       '#rows' => 3,
     ];
 
-    // New file upload field
-    $form['chat_images'] = [
+    // Section for upload controls, to be targeted by AJAX.
+    $form['upload_settings_wrapper'] = [
+      '#type' => 'container',
+      '#attributes' => ['id' => 'upload-settings-wrapper-' . $this->thread->id()], // Unique ID per thread instance
+    ];
+
+    $current_user_allows_uploads = FALSE;
+    if ($this->thread->getUser1()->id() == $current_user_id) {
+      $current_user_allows_uploads = $this->thread->getUser1AllowsUploads();
+    } elseif ($this->thread->getUser2()->id() == $current_user_id) {
+      $current_user_allows_uploads = $this->thread->getUser2AllowsUploads();
+    }
+
+    $form['upload_settings_wrapper']['allow_uploads_toggle'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('I allow file uploads in this chat'),
+      '#default_value' => $current_user_allows_uploads,
+      '#ajax' => [
+        'callback' => '::ajaxAllowUploadsToggleCallback',
+        'wrapper' => 'upload-settings-wrapper-' . $this->thread->id(),
+        'event' => 'change',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Updating preference...'),
+        ],
+      ],
+    ];
+
+    // File upload field
+    $form['upload_settings_wrapper']['chat_images'] = [
       '#type' => 'managed_file',
-      '#title' => $this->t('Attach image'),
-      '#upload_location' => 'private://match_chat_images/', // Ensure this path is valid & writable
+      '#title' => $this->t('Attach image(s)'),
+      '#upload_location' => 'private://match_chat_images/',
       '#upload_validators' => [
         'file_validate_extensions' => ['png gif jpg jpeg'],
-        'file_validate_size' => [2 * 1024 * 1024], // 2MB in bytes
-        // 'file_validate_image_resolution' => ['4000x4000'], // Max resolution
-        // 'file_validate_image_resolution' => ['50x50'] // Min resolution
+        'file_validate_size' => [2 * 1024 * 1024], // 2MB
       ],
-      '#description' => $this->t('Allowed extensions: png, gif, jpg, jpeg. Max 2MB per file.'),
-      // '#cardinality' => 3, // The widget doesn't directly use this, field definition does.
-      // We'll validate cardinality in validateForm.
+      '#description' => $this->t('Allowed extensions: png, gif, jpg, jpeg. Max 2MB per file. Max 3 files.'),
+      // '#multiple' => TRUE, // For the widget to allow multiple, though cardinality is on field def.
+      // The '#access' property controls if the field is rendered at all.
+      // We use #disabled to show it but make it unusable if uploads are not permitted by both.
+      '#disabled' => !$this->thread->bothParticipantsAllowUploads(),
+      '#access' => TRUE, // Always show the field, but disable if needed.
+      // Provide a message if uploads are disabled.
+      '#prefix' => !$this->thread->bothParticipantsAllowUploads() ? '<div class="messages messages--warning">' . $this->t('File uploads are currently disabled because both participants need to allow them. You can enable them using the checkbox above.') . '</div>' : '',
     ];
 
 
@@ -155,7 +186,7 @@ class MatchMessageForm extends FormBase
       '#value' => $this->t('Send'),
       '#ajax' => [
         'callback' => '::ajaxSubmitCallback',
-        'wrapper' => 'match-message-form-wrapper', // Consider replacing the whole form for file field reset
+        'wrapper' => 'match-message-form-wrapper',
         'disable-refocus' => FALSE,
         'effect' => 'fade',
         'progress' => [
@@ -169,6 +200,41 @@ class MatchMessageForm extends FormBase
   }
 
   /**
+   * AJAX callback for the allow_uploads_toggle checkbox.
+   */
+  public function ajaxAllowUploadsToggleCallback(array &$form, FormStateInterface $form_state)
+  {
+    $response = new AjaxResponse();
+    $thread_id = $form_state->getValue('thread_id');
+    /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+    $thread = $this->entityTypeManager->getStorage('match_thread')->load($thread_id);
+    $current_user_id = $this->currentUser->id();
+    $checkbox_value = (bool) $form_state->getValue('allow_uploads_toggle');
+
+    if ($thread) {
+      if ($thread->getUser1()->id() == $current_user_id) {
+        $thread->setUser1AllowsUploads($checkbox_value);
+      } elseif ($thread->getUser2()->id() == $current_user_id) {
+        $thread->setUser2AllowsUploads($checkbox_value);
+      }
+      $thread->save();
+
+      // Update the form elements based on the new state.
+      // We need to rebuild the relevant part of the form.
+      $form['upload_settings_wrapper']['chat_images']['#disabled'] = !$thread->bothParticipantsAllowUploads();
+      $form['upload_settings_wrapper']['chat_images']['#prefix'] = !$thread->bothParticipantsAllowUploads() ? '<div class="messages messages--warning">' . $this->t('File uploads are currently disabled because both participants need to allow them. You can enable them using the checkbox above.') . '</div>' : '';
+
+
+      $response->addCommand(new ReplaceCommand('#upload-settings-wrapper-' . $thread->id(), $form['upload_settings_wrapper']));
+    } else {
+      $response->addCommand(new MessageCommand($this->t('Could not update upload preference. Thread not found.'), NULL, ['type' => 'error']));
+    }
+
+    return $response;
+  }
+
+
+  /**
    * {@inheritdoc}
    */
   public function validateForm(array &$form, FormStateInterface $form_state)
@@ -176,14 +242,32 @@ class MatchMessageForm extends FormBase
     parent::validateForm($form, $form_state);
 
     $message_value = $form_state->getValue('message');
-    $image_fids = $form_state->getValue('chat_images');
+    $image_fids = $form_state->getValue('chat_images'); // This will be an array of fids.
+
+    $thread_id = $form_state->getValue('thread_id');
+    /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+    $thread = $this->entityTypeManager->getStorage('match_thread')->load($thread_id);
+
+    if (!$thread) {
+      $form_state->setErrorByName('message', $this->t('Chat thread not found.'));
+      return;
+    }
+
+    $uploads_allowed_by_both = $thread->bothParticipantsAllowUploads();
 
     if (empty(trim($message_value)) && empty($image_fids)) {
       $form_state->setErrorByName('message', $this->t('You must enter a message or upload at least one image.'));
     }
 
+    if (!empty($image_fids) && !$uploads_allowed_by_both) {
+      $form_state->setErrorByName('chat_images', $this->t('File uploads are not allowed by both participants. Please enable them or remove the files.'));
+    }
+
+    // Validate cardinality for chat_images
     if (!empty($image_fids) && count($image_fids) > 3) {
-      $form_state->setErrorByName('chat_images', $this->t('You can upload a maximum of 1 image.'));
+      // Note: The MatchMessage entity definition has cardinality 3.
+      // This check should ideally be aligned with that.
+      $form_state->setErrorByName('chat_images', $this->t('You can upload a maximum of 3 images.'));
     }
   }
 
@@ -194,50 +278,37 @@ class MatchMessageForm extends FormBase
   {
     $response = new AjaxResponse();
 
-    // Check for validation errors FIRST.
     if ($form_state->hasAnyErrors()) {
-      \Drupal::logger('match_chat')->debug('AJAX callback: Form has validation errors.');
-
-      // Option 1: Let Drupal re-render the form with inline errors.
-      // The $form array should now contain error markup if the theme supports it well for AJAX.
-      // This command replaces the form's HTML with its new state (including error classes/messages).
       $response->addCommand(new ReplaceCommand('#match-message-form-wrapper', $form));
-
-      // Option 2: Explicitly add error messages to the Drupal messages area.
-      // This is often more reliable for ensuring the user sees the message,
-      // especially if inline errors within the form are subtle or not styled prominently by the theme.
-      // We can combine this with Option 1.
       $errors = $form_state->getErrors();
-      foreach ($errors as $field_name => $error_message) {
-        // The MessageCommand will add the error to the standard Drupal messages region.
+      foreach ($errors as $error_message) {
         $response->addCommand(new MessageCommand($error_message, NULL, ['type' => 'error']));
-        // Log which error is being sent
-        \Drupal::logger('match_chat')->debug('AJAX MessageCommand: Added error for field "@field": @message', ['@field' => $field_name, '@message' => $error_message]);
       }
-
-      return $response; // IMPORTANT: Return immediately when there are errors.
+      return $response;
     }
 
-    // If no errors, proceed with successful submission logic:
-    $form_state->setRebuild(TRUE);
+    $form_state->setRebuild(TRUE); // Important for clearing form after successful AJAX submission.
 
-    // Update the messages list
     if ($this->thread && $this->thread->id()) {
-      $thread_id = $this->thread->id();
-      $thread = $this->entityTypeManager->getStorage('match_thread')->load($thread_id);
-      if ($thread) {
-        $controller = \Drupal::classResolver(MatchChatController::class)->create(\Drupal::getContainer());
-        $build = $controller->renderMessages($thread);
+      $thread_entity = $this->entityTypeManager->getStorage('match_thread')->load($this->thread->id());
+      if ($thread_entity) {
+        // The controller for MatchChatController might need to be retrieved from the container
+        // if it has dependencies, or ensure MatchChatController::create can be called statically
+        // if you resolve it via \Drupal::classResolver.
+        // $controller = MatchChatController::create(\Drupal::getContainer());
+        $controller = \Drupal::service('class_resolver')->getInstanceFromDefinition(MatchChatController::class);
+
+        $build = $controller->renderMessages($thread_entity);
         $messages_html_output = \Drupal::service('renderer')->renderRoot($build['messages_list']);
         $response->addCommand(new ReplaceCommand('#match-chat-messages-wrapper', $messages_html_output));
       }
     }
 
-    // Rebuild and replace the form (for clearing fields on success)
+    // Rebuild and replace the form to clear it and update upload settings state.
+    // Passing $form here to rebuildForm ensures it rebuilds with the latest values/states.
     $rebuilt_form = \Drupal::formBuilder()->rebuildForm($this->getFormId(), $form_state, $form);
     $response->addCommand(new ReplaceCommand('#match-message-form-wrapper', $rebuilt_form));
 
-    // Scroll to bottom
     $response->addCommand(new InvokeCommand('.chat-messages-scroll-container', 'matchChatScrollToBottom'));
 
     return $response;
@@ -248,13 +319,26 @@ class MatchMessageForm extends FormBase
    */
   public function submitForm(array &$form, FormStateInterface $form_state)
   {
-    // If form is rebuilt due to AJAX, and there were errors, don't submit.
     if ($form_state->hasAnyErrors()) {
-      return;
+      return; // Errors handled by AJAX callback.
     }
 
     $values = $form_state->getValues();
-    $fids = $values['chat_images']; // Array of file IDs
+    $fids = $values['chat_images'] ?? []; // Default to empty array if not set.
+
+    /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+    $thread = $this->entityTypeManager->getStorage('match_thread')->load($values['thread_id']);
+
+    if (!$thread) {
+      $this->messenger()->addError($this->t('Chat thread not found. Message not sent.'));
+      return;
+    }
+
+    // Final check if uploads are allowed, in case validation was bypassed or state changed.
+    if (!empty($fids) && !$thread->bothParticipantsAllowUploads()) {
+      $this->messenger()->addError($this->t('File uploads are not permitted by both participants. Message sent without files.'));
+      $fids = []; // Do not save files.
+    }
 
     try {
       /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message_entity */
@@ -262,47 +346,30 @@ class MatchMessageForm extends FormBase
         'sender' => $this->currentUser->id(),
         'thread_id' => $values['thread_id'],
         'message' => $values['message'],
-        'chat_images' => $fids, // Assign the array of FIDs
+        'chat_images' => $fids,
       ]);
       $message_entity->save();
 
-      // File usage is handled in hook_match_message_presave etc.
-
-      /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
-      $thread = $this->entityTypeManager->getStorage('match_thread')->load($values['thread_id']);
       if ($thread) {
         $thread->setChangedTime(\Drupal::time()->getRequestTime());
         $thread->save();
       }
 
-      // --- Add/Modify these lines for clearing form state ---
-      // Clear the processed values from the form state.
-      // This is a good practice for AJAX forms that rebuild.
+      // Clear values for the next message on AJAX rebuild.
       $form_state->setValue('message', '');
-      $form_state->setValue('chat_images', []); // For managed_file, an empty array is appropriate.
-
-      // Also, clear the specific user inputs so they don't repopulate on rebuild.
+      $form_state->setValue('chat_images', []);
       $user_input = $form_state->getUserInput();
-      unset($user_input['message']);
-      unset($user_input['chat_images']);
-      // You might also need to unset other form controls if they cause issues,
-      // e.g., $user_input['op'] (the submit button value), $user_input['form_build_id'], etc.,
-      // but usually this is sufficient for field values.
+      unset($user_input['message'], $user_input['chat_images']);
       $form_state->setUserInput($user_input);
-      // --- End of clearing form state modifications ---
 
-      $request = $this->getRequest();
-      if (!$request->isXmlHttpRequest()) {
+
+      if (!$this->getRequest()->isXmlHttpRequest()) {
         $this->messenger()->addStatus($this->t('Message sent.'));
       }
-      // Note: $form_state->setRebuild(TRUE) is primarily handled in the ajaxSubmitCallback
-      // for AJAX submissions to trigger the form rebuild there.
-
     } catch (\Exception $e) {
       $this->messenger()->addError($this->t('An error occurred while sending the message: @error', ['@error' => $e->getMessage()]));
       \Drupal::logger('match_chat')->error('Error sending message: @error. Trace: @trace', ['@error' => $e->getMessage(), '@trace' => $e->getTraceAsString()]);
-      // If an error occurs, prevent the form from being marked for rebuild if it was set by AJAX.
-      $form_state->setRebuild(FALSE);
+      $form_state->setRebuild(FALSE); // Prevent rebuild on error if it's an AJAX request
     }
   }
 }
