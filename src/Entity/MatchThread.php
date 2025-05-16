@@ -130,6 +130,20 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
       ->setDisplayConfigurable('form', TRUE)
       ->setDisplayConfigurable('view', TRUE);
 
+    $fields['user1_blocked_user2'] = BaseFieldDefinition::create('boolean')
+      ->setLabel(t('User 1 Blocked User 2'))
+      ->setDescription(t('Whether User 1 has blocked User 2 in this thread.'))
+      ->setDefaultValue(FALSE)
+      ->setDisplayConfigurable('form', FALSE)
+      ->setDisplayConfigurable('view', FALSE);
+
+    $fields['user2_blocked_user1'] = BaseFieldDefinition::create('boolean')
+      ->setLabel(t('User 2 Blocked User 1'))
+      ->setDescription(t('Whether User 2 has blocked User 1 in this thread.'))
+      ->setDefaultValue(FALSE)
+      ->setDisplayConfigurable('form', FALSE)
+      ->setDisplayConfigurable('view', FALSE);
+
     $fields['created'] = BaseFieldDefinition::create('created')
       ->setLabel((string) t('Created')) // Cast to string
       ->setDescription((string) t('The time that the entity was created.')); // Cast to string
@@ -139,6 +153,50 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
       ->setDescription((string) t('The time that the entity was last edited.')); // Cast to string
 
     return $fields;
+  }
+  /**
+   * {@inheritdoc}
+   */
+  public function hasUserBlockedOther(UserInterface $blocker): bool
+  {
+    if ($this->getUser1() && $this->getUser1()->id() == $blocker->id()) {
+      return (bool) $this->get('user1_blocked_user2')->value;
+    }
+    if ($this->getUser2() && $this->getUser2()->id() == $blocker->id()) {
+      return (bool) $this->get('user2_blocked_user1')->value;
+    }
+    return FALSE; // Should not happen if $blocker is a participant
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function isUserBlockedByOther(UserInterface $user): bool
+  {
+    if ($this->getUser1() && $this->getUser1()->id() == $user->id()) {
+      // If $user is user1, check if user2 has blocked user1
+      return (bool) $this->get('user2_blocked_user1')->value;
+    }
+    if ($this->getUser2() && $this->getUser2()->id() == $user->id()) {
+      // If $user is user2, check if user1 has blocked user2
+      return (bool) $this->get('user1_blocked_user2')->value;
+    }
+    return FALSE; // Should not happen if $user is a participant
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setBlockStatusByUser(UserInterface $blocker, bool $status): self
+  {
+    if ($this->getUser1() && $this->getUser1()->id() == $blocker->id()) {
+      $this->set('user1_blocked_user2', $status);
+    } elseif ($this->getUser2() && $this->getUser2()->id() == $blocker->id()) {
+      $this->set('user2_blocked_user1', $status);
+    } else {
+      // Optionally log an error or throw an exception if $blocker is not a participant
+    }
+    return $this;
   }
 
   /**
@@ -261,60 +319,5 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
   public function bothParticipantsAllowUploads(): bool
   {
     return $this->getUser1AllowsUploads() && $this->getUser2AllowsUploads();
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function hasUserBlockedOther(UserInterface $blocker): bool
-  {
-    $user1 = $this->getUser1();
-    $user2 = $this->getUser2();
-
-    if ($user1 && $user1->id() == $blocker->id()) {
-      return (bool) $this->get('user1_blocked_user2')->value;
-    }
-    if ($user2 && $user2->id() == $blocker->id()) {
-      return (bool) $this->get('user2_blocked_user1')->value;
-    }
-    // This case implies $blocker is not a participant or participants are not set.
-    return FALSE;
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function isUserBlockedByOther(UserInterface $user): bool
-  {
-    $user1 = $this->getUser1();
-    $user2 = $this->getUser2();
-
-    if ($user1 && $user1->id() == $user->id()) {
-      // If $user is user1, check if user2 has blocked user1.
-      return (bool) $this->get('user2_blocked_user1')->value;
-    }
-    if ($user2 && $user2->id() == $user->id()) {
-      // If $user is user2, check if user1 has blocked user2.
-      return (bool) $this->get('user1_blocked_user2')->value;
-    }
-    // This case implies $user is not a participant or participants are not set.
-    return FALSE;
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public function setBlockStatusByUser(UserInterface $blocker, bool $status): self
-  {
-    $user1 = $this->getUser1();
-    $user2 = $this->getUser2();
-
-    if ($user1 && $user1->id() == $blocker->id()) {
-      $this->set('user1_blocked_user2', $status);
-    } elseif ($user2 && $user2->id() == $blocker->id()) {
-      $this->set('user2_blocked_user1', $status);
-    }
-    // Optionally: else throw an exception or log if $blocker is not a participant.
-    return $this;
   }
 }
