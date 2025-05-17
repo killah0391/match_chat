@@ -14,6 +14,7 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Drupal\match_chat\Entity\MatchThreadInterface;
 use Drupal\user_match\Service\UserMatchService; // Assuming this service is still relevant
+use Drupal\match_chat\Form\ChatSettingsPopoverForm; // Import the new form class
 
 /**
  * Controller for Match Chat.
@@ -105,7 +106,6 @@ class MatchChatController extends ControllerBase
       return $this->redirect('<front>');
     }
 
-    // Check recipient's message acceptance preference (existing logic).
     $acceptsOnlyFromMatches = FALSE;
     if ($targetUser->hasField('field_accept_msg_from_matches') && !$targetUser->get('field_accept_msg_from_matches')->isEmpty()) {
       $acceptsOnlyFromMatches = (bool) $targetUser->get('field_accept_msg_from_matches')->value;
@@ -119,7 +119,6 @@ class MatchChatController extends ControllerBase
       }
     }
 
-    // Find existing thread (existing logic).
     $thread_storage = $this->entityTypeManager->getStorage('match_thread');
     $query = $thread_storage->getQuery()
       ->accessCheck(TRUE)
@@ -184,16 +183,15 @@ class MatchChatController extends ControllerBase
     /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
     $thread = reset($threads);
 
-    $user1 = $thread->getUser1(); // Get full user entity.
-    $user2 = $thread->getUser2(); // Get full user entity.
+    $user1 = $thread->getUser1();
+    $user2 = $thread->getUser2();
     $current_user_id = $this->currentUser->id();
 
     if (!$user1 || !$user2) {
-      throw new NotFoundHttpException($this->t("Chat participants could not be loaded."));
+      throw new NotFoundHttpException($this->t("Chat participants could not be loaded for this thread."));
     }
     $user1_id = $user1->id();
     $user2_id = $user2->id();
-
 
     if ($current_user_id != $user1_id && $current_user_id != $user2_id) {
       throw new AccessDeniedHttpException();
@@ -204,21 +202,25 @@ class MatchChatController extends ControllerBase
     /** @var \Drupal\user\UserInterface $other_user_entity */
     $other_user_entity = ($user1_id == $current_user_id) ? $user2 : $user1;
 
-    // Determine block status using methods from MatchThreadInterface.
     $has_current_user_blocked_other = $thread->hasUserBlockedOther($current_user_entity);
     $is_current_user_blocked_by_other = $thread->isUserBlockedByOther($current_user_entity);
 
-    // Pass block status to renderMessages.
     $messages_render_array = $this->renderMessages($thread, $current_user_entity, $has_current_user_blocked_other, $is_current_user_blocked_by_other);
-    $form = $this->formBuilder()->getForm('\Drupal\match_chat\Form\MatchMessageForm', $thread);
+
+    // Main message input form
+    $message_form = $this->formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
+
+    // Chat Settings Popover Form (includes block user and allow uploads)
+    $chat_settings_popover_form = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $thread);
 
     return [
       '#theme' => 'match_thread',
       '#thread' => $thread,
       '#messages_list' => $messages_render_array['messages_list'],
-      '#message_form' => $form,
-      '#current_user_entity' => $current_user_entity, // Pass full user entity.
-      '#other_user_entity' => $other_user_entity,   // Pass other user entity.
+      '#message_form' => $message_form,
+      '#chat_settings_popover_form' => $chat_settings_popover_form, // Pass the new form
+      '#current_user_entity' => $current_user_entity,
+      '#other_user_entity' => $other_user_entity,
       '#has_current_user_blocked_other' => $has_current_user_blocked_other,
       '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
       '#attached' => [
@@ -226,6 +228,14 @@ class MatchChatController extends ControllerBase
           'core/drupal.ajax',
           'match_chat/match_chat_styles',
           'match_chat/match_chat_scrolltobottom',
+          'match_chat/match_chat_popover', // Ensure this library is defined for popover JS
+        ],
+        'drupalSettings' => [
+          'match_chat' => [
+            'thread_id' => $thread->id(),
+            // Template for the popover form's internal wrapper ID for JS
+            'popover_form_internal_wrapper_id_tpl' => 'chat-settings-popover-form-wrapper-',
+          ],
         ],
       ],
     ];
@@ -258,24 +268,6 @@ class MatchChatController extends ControllerBase
       ->condition('thread_id', $thread->id())
       ->sort('created', 'ASC');
 
-    // Potentially filter messages based on block status.
-    // The MatchMessageForm already prevents sending new messages if blocked.
-    // This section would be for hiding existing messages.
-    // Example: If current user is blocked by other, don't load messages from other user.
-    // if ($is_current_user_blocked_by_other) {
-    //   $other_user_id = ($thread->getUser1()->id() == $current_user_entity->id())
-    //     ? $thread->getUser2()->id()
-    //     : $thread->getUser1()->id();
-    //   $query->condition('sender', $other_user_id, '<>'); // Only show my messages
-    // }
-    // Example: If current user has blocked other, optionally hide messages from them.
-    // if ($has_current_user_blocked_other) {
-    //   $other_user_id = ($thread->getUser1()->id() == $current_user_entity->id())
-    //     ? $thread->getUser2()->id()
-    //     : $thread->getUser1()->id();
-    //   // $query->condition('sender', $other_user_id, '<>'); // Or, show all for context if preferred
-    // }
-
     $message_ids = $query->execute();
     $messages_for_list_items = [];
     if (!empty($message_ids)) {
@@ -283,21 +275,6 @@ class MatchChatController extends ControllerBase
       $view_builder = $this->entityTypeManager->getViewBuilder('match_message');
 
       foreach ($message_entities as $message_entity_item) {
-        // Additional filtering logic can be applied here if needed,
-        // for messages already loaded.
-        // For example:
-        // $sender_id = $message_entity_item->getOwnerId();
-        // $other_participant_id = ($thread->getUser1()->id() == $current_user_entity->id()) ? $thread->getUser2()->id() : $thread->getUser1()->id();
-        //
-        // if ($is_current_user_blocked_by_other && $sender_id == $other_participant_id) {
-        //   continue; // Skip message from user who blocked current user.
-        // }
-        // if ($has_current_user_blocked_other && $sender_id == $other_participant_id) {
-        //   // Decide if you want to show messages from a user you've blocked.
-        //   // For now, we assume they are shown, as blocking primarily prevents future interaction.
-        //   // To hide: continue;
-        // }
-
         $is_sender = ($message_entity_item->getOwnerId() == $current_user_entity->id());
         $messages_for_list_items[] = [
           '#theme' => 'match_message',
@@ -316,15 +293,16 @@ class MatchChatController extends ControllerBase
       '#items' => $messages_for_list_items,
       '#title' => NULL,
       '#attributes' => ['class' => ['chat-messages-ul']],
-      '#empty' => $this->t('No messages yet. Be the first to say hello!'),
     ];
 
-    // This message appears if the list is empty AND the form is disabled due to a block.
-    if (empty($messages_for_list_items) && ($has_current_user_blocked_other || $is_current_user_blocked_by_other)) {
+    // Update empty message based on block status
+    if (empty($messages_for_list_items)) {
       if ($has_current_user_blocked_other) {
-        $actual_list_of_messages['#empty'] = $this->t('You have blocked this user. No messages to display.');
+        $actual_list_of_messages['#empty'] = $this->t('You have blocked this user. No new messages can be exchanged.');
       } elseif ($is_current_user_blocked_by_other) {
-        $actual_list_of_messages['#empty'] = $this->t('This user has blocked you. No messages to display.');
+        $actual_list_of_messages['#empty'] = $this->t('This user has blocked you. No new messages can be exchanged.');
+      } else {
+        $actual_list_of_messages['#empty'] = $this->t('No messages yet. Be the first to say hello!');
       }
     }
 
@@ -357,8 +335,8 @@ class MatchChatController extends ControllerBase
       /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
       $thread = reset($threads);
       if ($thread) {
-        $user1 = $thread->getUser1(); // Get full user entity
-        $user2 = $thread->getUser2(); // Get full user entity
+        $user1 = $thread->getUser1();
+        $user2 = $thread->getUser2();
         $current_user_id = $this->currentUser->id();
 
         if ($user1 && $user2) {

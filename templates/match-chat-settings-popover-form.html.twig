@@ -1,0 +1,51 @@
+{# templates/match-chat-settings-popover-form.html.twig #}
+{#
+  This template is for the 'match_chat_settings_popover_form' theme hook.
+  The $form variable contains the render array for the ChatSettingsPopoverForm.
+  The form's #prefix and #suffix defined in buildForm() will create the
+  outer wrapper div (e.g., id="chat-settings-popover-form-wrapper-{{TID}}").
+  This template controls what goes *inside* that wrapper if it's not just {{ children }}.
+#}
+
+{#
+  Option 1: Simplest way if you just want to render all elements Drupal provides.
+  Drupal's default form rendering also adds the <form> tag, CSRF tokens, form_id, etc.
+  The #prefix and #suffix on the $form array in PHP will wrap this content.
+#}
+{# {{ form }} #}
+{# This would render everything, including the form tag again if not careful #}
+
+{#
+  Option 2: More explicit rendering of your elements.
+  This is useful if you want to add specific Bootstrap wrappers like form-switch.
+  The main <form> tag and its necessary hidden fields (form_build_id, form_id, op)
+  are usually handled by the parent form rendering process when 'render element' => 'form'.
+  This template would be effectively overriding the 'children' part of a standard form.html.twig.
+#}
+
+{# Render the "Block User" checkbox. You can add Bootstrap classes here or in Form API #}
+	<div
+	class="form-check form-switch mb-2"> {# Bootstrap 5 switch styling #}
+	{{ form.toggle_block.label_attributes.addClass('form-check-label') }}
+	{# Add class to label if needed #}
+	{{ form.toggle_block.attributes.addClass('form-check-input') }}
+	{# Add class to input if needed #}
+	{{ form.toggle_block }}
+	{# This renders the input and its label #}
+</div>
+
+{# Render the "Allow File Uploads" checkbox #}
+<div
+	class="form-check form-switch">
+	{# Bootstrap 5 switch styling #}
+	{{ form.allow_uploads.label_attributes.addClass('form-check-label') }}
+	{{ form.allow_uploads.attributes.addClass('form-check-input') }}
+	{{ form.allow_uploads }}
+</div>
+
+{#
+  It's crucial to render any other elements Drupal expects, especially hidden fields,
+  and elements added by Drupal like form_build_id, form_id, and form_token.
+  The |without filter helps render everything else that you haven't explicitly rendered.
+#}
+{{ form|without('toggle_block', 'allow_uploads') }}
