@@ -13,3 +13,12 @@ match_chat_scrolltobottom: # Library for JavaScript behaviors (using "scrolltobo
     - core/drupal
     - core/once
     - core/drupalSettings
+match_chat_popover:
+  version: VERSION
+  js:
+    js/match_chat_popover.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/once
+    - core/drupalSettings
