@@ -7,9 +7,7 @@
   border: 1px solid #e0e0e0;
   border-radius: 5px;
   background-color: #f9f9f9;
-  /* Light background for the whole chat */
   margin-bottom: 20px;
-  /* Space below the chat box */
 }
 
 .chat-with-header {
@@ -57,6 +55,11 @@ ul.chat-messages-ul li {
   /* Remove any default li padding */
   margin: 0;
   /* Remove any default li margin */
+  border: none!important;
+}
+
+.chat-message-ul li {
+  border: none!important;
 }
 
 ul.chat-messages-ul li:not(:last-child) .match-chat-message {
@@ -69,7 +72,7 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
 .chat-form-container {
   padding: 15px;
   border-top: 1px solid #e0e0e0;
-  background-color: #f1f1f1;
+  /* background-color: #f1f1f1; */
   /* Matches header background */
   flex-shrink: 0;
   /* Prevent form area from shrinking */
@@ -85,12 +88,13 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
   /* Standard property */
   white-space: pre-wrap;
   /* Respects newlines and continuous spaces, and wraps */
+  color: #f5f5f5;
 }
 
 /* Styles for .match-chat-message, .message-sent, .message-received, etc.,
  from match_message.html.twig should continue to work. */
 .match-chat-message {
-  border: 1px solid #ccc;
+  border: 1px solid #cccccc;
   padding: 10px;
   margin-bottom: 10px;
   /* Space between message bubbles */
@@ -104,17 +108,26 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
 }
 
 .message-sent {
-  background-color: #dcf8c6;
+  background-color: #dddddd;
   /* Light green for sent */
-  border-color: #c4e9a9;
+  /* border-color: #ff7c7c; */
   float: right;
   margin-left: 25%;
 }
 
+.message-sent .message-sender,
+.message-sent .message-timestamp {
+  color: #8a8a8a;
+}
+
+.message-sent .message-content {
+  color: #999999;
+}
+
 .message-received {
-  background-color: #e9e9eb;
+  background-color: #ff7c7c;
   /* Light grey for received */
-  border-color: #dcdcdc;
+  border-color: #999;
   float: left;
   margin-right: 25%;
 }
@@ -123,12 +136,12 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
   font-weight: bold;
   font-size: 0.9em;
   margin-bottom: 4px;
-  color: #555;
+  color: #ffbaba;
 }
 
 .message-timestamp {
   font-size: 0.8em;
-  color: #888;
+  color: #ffbaba;
   /* Lighter timestamp */
   margin-top: 5px;
   text-align: right;
