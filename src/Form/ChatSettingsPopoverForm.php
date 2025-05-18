@@ -9,10 +9,11 @@ use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Ajax\AnnounceCommand;
+use Drupal\Core\Ajax\AppendCommand;
+use Drupal\Core\Ajax\HtmlCommand; // To clear previous messages from the target container
 use Drupal\match_chat\Entity\MatchThreadInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-// Ensure UserInterface is imported if type hints are used explicitly for it.
-// use Drupal\user\UserInterface as DrupalUserInterface;
+// No need for ShowBootstrapToastCommand
 
 /**
  * Provides a form for chat settings (blocking, file uploads) within a popover.
@@ -23,13 +24,12 @@ class ChatSettingsPopoverForm extends FormBase
   protected EntityTypeManagerInterface $entityTypeManager;
   protected AccountInterface $currentUser;
 
+  // Target selector for AJAX messages, consistent with MatchMessageForm if desired.
+  // Or a more specific one if popover messages need a different location.
+  const AJAX_MESSAGES_CONTAINER_SELECTOR = '.chat-status-messages'; // Or another stable selector
+
   /**
    * Constructs a new ChatSettingsPopoverForm.
-   *
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
-   * The entity type manager.
-   * @param \Drupal\Core\Session\AccountInterface $current_user
-   * The current user.
    */
   public function __construct(EntityTypeManagerInterface $entity_type_manager, AccountInterface $current_user)
   {
@@ -61,40 +61,33 @@ class ChatSettingsPopoverForm extends FormBase
    */
   public function buildForm(array $form, FormStateInterface $form_state, MatchThreadInterface $thread = NULL): array
   {
-    $form_internal_wrapper_id = 'chat-settings-popover-form-wrapper-' . ($thread ? $thread->id() : 'no-thread-available');
+    $thread_id_suffix = $thread && $thread->id() ? $thread->id() : 'no-thread-available';
+    $form_internal_wrapper_id = 'chat-settings-popover-form-wrapper-' . $thread_id_suffix;
+
     $form['#prefix'] = '<div id="' . $form_internal_wrapper_id . '" class="match-chat-popover-form-inner-wrapper p-2">';
     $form['#suffix'] = '</div>';
 
-    if (!$thread || !$thread->id()) { // Ensure thread has an ID too.
-      $form['error_no_thread'] = ['#markup' => '<div class="alert alert-danger small p-2">' . $this->t('Chat thread information is currently unavailable.') . '</div>'];
-      // Log this occurrence if $thread was passed but has no ID.
+    // No inline message placeholder needed in the form structure itself.
+    // Messages will be appended to a global/stable container.
+
+    if (!$thread || !$thread->id()) {
       if ($thread && !$thread->id()) {
         \Drupal::logger('match_chat')->warning('ChatSettingsPopoverForm::buildForm: Passed thread has no ID.');
       }
+      $form['error_no_thread'] = ['#markup' => '<div class="alert alert-danger small p-2">' . $this->t('Chat thread information is currently unavailable.') . '</div>'];
       return $form;
     }
 
-    /** @var \Drupal\user\UserInterface|null $current_user_obj */
     $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
-    /** @var \Drupal\user\UserInterface|null $user1 */
     $user1 = $thread->getUser1();
-    /** @var \Drupal\user\UserInterface|null $user2 */
     $user2 = $thread->getUser2();
 
     if (!$current_user_obj || !$user1 || !$user2) {
       $form['error_participants'] = ['#markup' => '<div class="alert alert-danger small p-2">' . $this->t('Participant information could not be loaded.') . '</div>'];
-      \Drupal::logger('match_chat')->error('ChatSettingsPopoverForm::buildForm: Failed to load one or more user objects for thread ID @tid. CU: @cu, U1: @u1, U2: @u2', [
-        '@tid' => $thread->id(),
-        '@cu' => $current_user_obj ? 'OK' : 'Fail',
-        '@u1' => $user1 ? 'OK' : 'Fail',
-        '@u2' => $user2 ? 'OK' : 'Fail',
-      ]);
+      \Drupal::logger('match_chat')->error('ChatSettingsPopoverForm::buildForm: Failed to load users for thread @tid.', ['@tid' => $thread->id()]);
       return $form;
     }
-
-    /** @var \Drupal\user\UserInterface $other_user_obj */
     $other_user_obj = ($user1->id() === $current_user_obj->id()) ? $user2 : $user1;
-
     $has_blocked_other = $thread->hasUserBlockedOther($current_user_obj);
 
     $form['thread_id'] = ['#type' => 'hidden', '#value' => $thread->id()];
@@ -108,7 +101,7 @@ class ChatSettingsPopoverForm extends FormBase
       '#ajax' => [
         'callback' => '::ajaxBlockToggleCallback',
         'event' => 'change',
-        'wrapper' => $form_internal_wrapper_id,
+        'wrapper' => $form_internal_wrapper_id, // This form part will be replaced
         'progress' => ['type' => 'throbber', 'message' => NULL],
       ],
       '#weight' => 10,
@@ -123,7 +116,7 @@ class ChatSettingsPopoverForm extends FormBase
       '#ajax' => [
         'callback' => '::ajaxUploadsToggleCallback',
         'event' => 'change',
-        'wrapper' => $form_internal_wrapper_id,
+        'wrapper' => $form_internal_wrapper_id, // This form part will be replaced
         'progress' => ['type' => 'throbber', 'message' => NULL],
       ],
       '#weight' => 20,
@@ -131,6 +124,32 @@ class ChatSettingsPopoverForm extends FormBase
 
     return $form;
   }
+
+  /**
+   * Helper function to add AJAX status messages using the preferred Drupal method.
+   */
+  protected function addDrupalAjaxMessages(AjaxResponse $response, string $target_selector = self::AJAX_MESSAGES_CONTAINER_SELECTOR)
+  {
+    // Retrieve AND clear messages from the session queue.
+    $messages_for_ajax = \Drupal::messenger()->deleteAll();
+
+    // Clear previous messages from the target container to avoid accumulation.
+    $response->addCommand(new HtmlCommand($target_selector, ''));
+
+    if (!empty($messages_for_ajax)) {
+      $messages_render_array = [
+        '#theme' => 'status_messages',
+        '#message_list' => $messages_for_ajax,
+        '#status_headings' => [
+          'status' => $this->t('Status message'),
+          'error' => $this->t('Error message'),
+          'warning' => $this->t('Warning message'),
+        ],
+      ];
+      $response->addCommand(new AppendCommand($target_selector, $messages_render_array));
+    }
+  }
+
 
   /**
    * AJAX callback for the Block User checkbox.
@@ -141,25 +160,19 @@ class ChatSettingsPopoverForm extends FormBase
     $thread_id = $form_state->getValue('thread_id');
     $should_be_blocked_new_state = (bool) $form_state->getValue('toggle_block');
 
-    /** @var \Drupal\match_chat\Entity\MatchThreadInterface|null $thread */
     $thread = $thread_id ? $this->entityTypeManager->getStorage('match_thread')->load($thread_id) : NULL;
-    /** @var \Drupal\user\UserInterface|null $current_user_obj */
     $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
-
     $announce_message = '';
-    $other_user_display_name = $this->t('the other user');
 
     if ($thread && $current_user_obj) {
       $user1_obj = $thread->getUser1();
       $user2_obj = $thread->getUser2();
       $other_user_obj = NULL;
 
-      if ($user1_obj && $user2_obj) {
-        if ($user1_obj->id() === $current_user_obj->id()) {
-          $other_user_obj = $user2_obj;
-        } elseif ($user2_obj->id() === $current_user_obj->id()) {
-          $other_user_obj = $user1_obj;
-        }
+      if ($user1_obj && $user1_obj->id() === $current_user_obj->id()) {
+        $other_user_obj = $user2_obj;
+      } elseif ($user2_obj && $user2_obj->id() === $current_user_obj->id()) {
+        $other_user_obj = $user1_obj;
       }
 
       if ($other_user_obj) {
@@ -176,25 +189,26 @@ class ChatSettingsPopoverForm extends FormBase
           }
         } catch (\Exception $e) {
           $this->messenger()->addError($this->t('An error occurred updating block status for @username.', ['@username' => $other_user_display_name]));
-          \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Exception for thread @tid: @message', ['@tid' => $thread_id, '@message' => $e->getMessage()]);
+          \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Exception for thread @tid: @message', ['@tid' => (string) $thread_id, '@message' => $e->getMessage()]);
         }
       } else {
         $this->messenger()->addError($this->t('Could not identify other participant. Block action failed.'));
-        \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Failed to determine other_user_obj for thread @tid.', ['@tid' => $thread_id]);
+        \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Failed to determine other_user_obj for thread @tid.', ['@tid' => (string) $thread_id]);
       }
     } else {
       $this->messenger()->addError($this->t('Essential chat information is missing. Block action failed.'));
-      \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Thread (ID: @tid) or current user (ID: @cuid) not loaded.', ['@tid' => $thread_id, '@cuid' => $this->currentUser->id()]);
+      \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Thread or current user not loaded for thread @tid.', ['@tid' => (string) $thread_id]);
     }
 
-    // Rebuild this popover form.
-    $this_popover_form_wrapper_id = $form_state->getValue('this_popover_form_wrapper_id');
-    if (empty($this_popover_form_wrapper_id) && isset($form['#ajax']['wrapper'])) {
-      $this_popover_form_wrapper_id = $form['#ajax']['wrapper'];
+    // Add Drupal status messages via AJAX.
+    $this->addDrupalAjaxMessages($response);
+
+    if (!empty($announce_message)) {
+      $response->addCommand(new AnnounceCommand($announce_message));
     }
-    // If $thread became NULL due to an error, pass NULL to getForm to avoid further issues.
-    // $rebuilt_popover_form = \Drupal::formBuilder()->getForm(static::class, $thread);
-    // RebuildForm is generally safer with AJAX as it preserves more $form_state context if needed for the build.
+
+    // Rebuild this popover form to reflect the new checkbox state.
+    $this_popover_form_wrapper_id = $form_state->getValue('this_popover_form_wrapper_id');
     $rebuilt_popover_form = \Drupal::formBuilder()->rebuildForm($this->getFormId(), $form_state, $form);
     if (!empty($this_popover_form_wrapper_id)) {
       $response->addCommand(new ReplaceCommand('#' . $this_popover_form_wrapper_id, $rebuilt_popover_form));
@@ -202,31 +216,18 @@ class ChatSettingsPopoverForm extends FormBase
 
     // Rebuild main message form.
     $main_message_form_wrapper_id = $form_state->getValue('main_message_form_wrapper_id');
-    if ($main_message_form_wrapper_id) {
-      if ($thread instanceof \Drupal\match_chat\Entity\MatchThreadInterface && $thread->id()) {
-        try {
-          $main_message_form = \Drupal::formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
-          $response->addCommand(new ReplaceCommand('#' . $main_message_form_wrapper_id, $main_message_form));
-        } catch (\Throwable $e) {
-          \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Exception getting MatchMessageForm for thread @tid: @msg. File: @file Line: @line', [
-            '@tid' => $thread->id(),
-            '@msg' => $e->getMessage(),
-            '@file' => $e->getFile(),
-            '@line' => $e->getLine()
-          ]);
-          $this->messenger()->addError($this->t('Error updating main chat form. Please refresh.'));
-        }
-      } else {
-        \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Skipped MatchMessageForm rebuild; thread invalid. Type: @type', ['@type' => gettype($thread)]);
+    if ($main_message_form_wrapper_id && $thread instanceof MatchThreadInterface && $thread->id()) {
+      try {
+        $main_message_form = \Drupal::formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
+        $response->addCommand(new ReplaceCommand('#' . $main_message_form_wrapper_id, $main_message_form));
+      } catch (\Throwable $e) {
+        $this->messenger()->addError($this->t('Error updating main chat form. Please refresh.'));
+        $this->addDrupalAjaxMessages($response); // Show this error too.
+        \Drupal::logger('match_chat')->error('ajaxBlockToggleCallback: Exception getting MatchMessageForm for thread @tid: @msg.', ['@tid' => $thread->id(), '@msg' => $e->getMessage()]);
       }
-    }
-
-    if (!empty($announce_message)) {
-      $response->addCommand(new AnnounceCommand($announce_message));
     }
     return $response;
   }
-
 
   /**
    * AJAX callback for the Allow File Uploads checkbox.
@@ -237,26 +238,23 @@ class ChatSettingsPopoverForm extends FormBase
     $thread_id = $form_state->getValue('thread_id');
     $uploads_allowed_new_state = (bool) $form_state->getValue('allow_uploads');
 
-    /** @var \Drupal\match_chat\Entity\MatchThreadInterface|null $thread */
     $thread = $thread_id ? $this->entityTypeManager->getStorage('match_thread')->load($thread_id) : NULL;
-    /** @var \Drupal\user\UserInterface|null $current_user_obj */
     $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
-
     $announce_message = '';
+
     if ($thread && $current_user_obj) {
       $user1 = $thread->getUser1();
       $user2 = $thread->getUser2();
-
-      if ($user1 && $user2) { // Ensure participants are loaded
+      if ($user1 && $user2) {
         try {
           if ($user1->id() === $current_user_obj->id()) {
             $thread->setUser1AllowsUploads($uploads_allowed_new_state);
           } elseif ($user2->id() === $current_user_obj->id()) {
             $thread->setUser2AllowsUploads($uploads_allowed_new_state);
           } else {
-            \Drupal::logger('match_chat')->warning('ajaxUploadsToggleCallback: Current user @uid not participant of thread @tid.', ['@uid' => $current_user_obj->id(), '@tid' => $thread_id]);
             $this->messenger()->addWarning($this->t('Could not update upload preference: not a participant.'));
-            goto end_of_uploads_logic; // Skip save and normal messages
+            \Drupal::logger('match_chat')->warning('ajaxUploadsToggleCallback: Current user @uid not participant of thread @tid.', ['@uid' => $current_user_obj->id(), '@tid' => (string) $thread_id]);
+            goto end_of_uploads_logic_drupal_cb;
           }
           $thread->save();
           $action_text = $uploads_allowed_new_state ? $this->t('enabled') : $this->t('disabled');
@@ -264,22 +262,27 @@ class ChatSettingsPopoverForm extends FormBase
           $announce_message = $this->t('Your file upload preference updated to: @state.', ['@state' => $action_text]);
         } catch (\Exception $e) {
           $this->messenger()->addError($this->t('An error occurred updating upload preference.'));
-          \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Exception for thread @tid: @message', ['@tid' => $thread_id, '@message' => $e->getMessage()]);
+          \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Exception for thread @tid: @message', ['@tid' => (string) $thread_id, '@message' => $e->getMessage()]);
         }
       } else {
         $this->messenger()->addError($this->t('Chat participant data is incomplete. Cannot update upload preference.'));
-        \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: User1 or User2 is null for thread @tid.', ['@tid' => $thread_id]);
+        \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: User1 or User2 is null for thread @tid.', ['@tid' => (string) $thread_id]);
       }
     } else {
       $this->messenger()->addError($this->t('Essential information missing. Upload preference not updated.'));
-      \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Thread (ID: @tid) or current user (ID: @cuid) not loaded.', ['@tid' => $thread_id, '@cuid' => $this->currentUser->id()]);
+      \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Thread or current user not loaded for thread @tid.', ['@tid' => (string) $thread_id]);
     }
 
-    end_of_uploads_logic:
+    end_of_uploads_logic_drupal_cb:
+    // Add Drupal status messages via AJAX.
+    $this->addDrupalAjaxMessages($response);
+
+    if (!empty($announce_message)) {
+      $response->addCommand(new AnnounceCommand($announce_message));
+    }
 
     // Rebuild this popover form.
     $this_popover_form_wrapper_id = $form_state->getValue('this_popover_form_wrapper_id', $form['#ajax']['wrapper'] ?? '');
-    // $rebuilt_popover_form = \Drupal::formBuilder()->getForm(static::class, $thread);
     $rebuilt_popover_form = \Drupal::formBuilder()->rebuildForm($this->getFormId(), $form_state, $form);
     if (!empty($this_popover_form_wrapper_id)) {
       $response->addCommand(new ReplaceCommand('#' . $this_popover_form_wrapper_id, $rebuilt_popover_form));
@@ -287,27 +290,15 @@ class ChatSettingsPopoverForm extends FormBase
 
     // Rebuild main message form.
     $main_message_form_wrapper_id = $form_state->getValue('main_message_form_wrapper_id');
-    if ($main_message_form_wrapper_id) {
-      if ($thread instanceof \Drupal\match_chat\Entity\MatchThreadInterface && $thread->id()) {
-        try {
-          $main_message_form = \Drupal::formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
-          $response->addCommand(new ReplaceCommand('#' . $main_message_form_wrapper_id, $main_message_form));
-        } catch (\Throwable $e) {
-          \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Exception getting MatchMessageForm for thread @tid: @msg. File: @file Line: @line', [
-            '@tid' => $thread->id(),
-            '@msg' => $e->getMessage(),
-            '@file' => $e->getFile(),
-            '@line' => $e->getLine()
-          ]);
-          $this->messenger()->addError($this->t('Error updating main chat form. Please refresh.'));
-        }
-      } else {
-        \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Skipped MatchMessageForm rebuild; thread invalid. Type: @type', ['@type' => gettype($thread)]);
+    if ($main_message_form_wrapper_id && $thread instanceof MatchThreadInterface && $thread->id()) {
+      try {
+        $main_message_form = \Drupal::formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
+        $response->addCommand(new ReplaceCommand('#' . $main_message_form_wrapper_id, $main_message_form));
+      } catch (\Throwable $e) {
+        $this->messenger()->addError($this->t('Error updating main chat form. Please refresh.'));
+        $this->addDrupalAjaxMessages($response); // Show this error too.
+        \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Exception getting MatchMessageForm for thread @tid: @msg.', ['@tid' => $thread->id(), '@msg' => $e->getMessage()]);
       }
-    }
-
-    if (!empty($announce_message)) {
-      $response->addCommand(new AnnounceCommand($announce_message));
     }
     return $response;
   }
@@ -317,6 +308,6 @@ class ChatSettingsPopoverForm extends FormBase
    */
   public function submitForm(array &$form, FormStateInterface $form_state): void
   {
-    // All logic is handled by the AJAX callbacks of the checkboxes.
+    // All logic is handled by the AJAX callbacks.
   }
 }
