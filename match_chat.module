@@ -19,45 +19,39 @@ use Drupal\user\UserInterface;
  */
 function match_chat_theme()
 {
-  $theme = [];
-
-  // Theme hook for the main chat thread page.
-  $theme['match_thread'] = [
-    'variables' => [
-      'thread' => NULL, // The MatchThread entity.
-      'messages_list' => NULL, // Render array for the messages list.
-      'message_form' => NULL, // Render array for the main message input form.
-      'chat_settings_popover_form' => NULL, // Render array for the popover settings form.
-      'current_user_entity' => NULL, // The current User entity.
-      'other_user_entity' => NULL, // The other User entity in the chat.
-      'has_current_user_blocked_other' => FALSE, // Boolean: current user blocked the other.
-      'is_current_user_blocked_by_other' => FALSE, // Boolean: current user is blocked by the other.
+  return [
+    'match_thread' => [ // Your existing theme hook
+      'variables' => [
+        'thread' => NULL,
+        'messages_list' => NULL,
+        'message_form' => NULL,
+        'chat_settings_popover_form' => NULL,
+        'current_user_entity' => NULL,
+        'other_user_entity' => NULL,
+        'has_current_user_blocked_other' => FALSE,
+        'is_current_user_blocked_by_other' => FALSE,
+      ],
+      'template' => 'match-thread',
     ],
-    'template' => 'match-thread', // Assumes templates/match-thread.html.twig
-  ];
-
-  // Theme hook for individual chat messages.
-  $theme['match_message'] = [
-    'variables' => [
-      'message_entity' => NULL, // The MatchMessage entity.
-      'content' => NULL, // Render array of the message content (e.g., from view builder).
-      'sender_name' => NULL, // Display name of the sender.
-      'message_text' => NULL, // The raw message text.
-      'created_formatted' => NULL, // Formatted creation time.
-      'is_sender' => FALSE, // Boolean: if the current user is the sender.
-      // Add other variables if your match-message.html.twig needs them.
+    'match_message' => [ // Your existing theme hook
+      'variables' => [
+        'message_entity' => NULL,
+        'content' => NULL,
+        'sender_name' => NULL,
+        'message_text' => NULL,
+        'created_formatted' => NULL,
+        'is_sender' => FALSE,
+      ],
+      'template' => 'match-message',
     ],
-    'template' => 'match-message', // Assumes templates/match-message.html.twig
+    'match_threads_list' => [ // New theme hook
+      'variables' => [
+        'threads' => [],
+        'empty_message' => '',
+      ],
+      'template' => 'match-threads-list', // This points to match-threads-list.html.twig
+    ],
   ];
-
-  // Theme hook for the chat settings popover form.
-  $theme['match_chat_settings_popover_form'] = [
-    'render element' => 'form', // Tells Drupal to use standard form rendering.
-    // No custom template file is strictly needed unless
-    // you want very specific markup for this small form.
-  ];
-
-  return $theme;
 }
 
 /**

@@ -16,6 +16,8 @@ use Drupal\match_chat\Entity\MatchThreadInterface;
 use Drupal\user_match\Service\UserMatchService; // Assuming this service is still relevant
 use Drupal\match_chat\Form\ChatSettingsPopoverForm; // Import the new form class
 use League\Container\Exception\NotFoundException;
+use Drupal\Core\Datetime\DateFormatterInterface; // Add this
+use Drupal\Core\Render\RendererInterface;
 
 /**
  * Controller for Match Chat.
@@ -52,6 +54,20 @@ class MatchChatController extends ControllerBase
   protected $uuidGenerator;
 
   /**
+   * The date formatter service.
+   *
+   * @var \Drupal\Core\Datetime\DateFormatterInterface
+   */
+  protected $dateFormatter;
+
+  /**
+   * The renderer service.
+   *
+   * @var \Drupal\Core\Render\RendererInterface
+   */
+  protected $renderer;
+
+  /**
    * Constructs a new MatchChatController.
    *
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
@@ -67,12 +83,16 @@ class MatchChatController extends ControllerBase
     EntityTypeManagerInterface $entity_type_manager,
     AccountInterface $current_user,
     UuidInterface $uuid_generator,
-    UserMatchService $user_match_service
+    UserMatchService $user_match_service,
+    DateFormatterInterface $date_formatter, // Add this
+    RendererInterface $renderer
   ) {
     $this->entityTypeManager = $entity_type_manager;
     $this->currentUser = $current_user;
     $this->uuidGenerator = $uuid_generator;
     $this->userMatchService = $user_match_service;
+    $this->dateFormatter = $date_formatter; // Add this
+    $this->renderer = $renderer;
   }
 
   /**
@@ -84,7 +104,9 @@ class MatchChatController extends ControllerBase
       $container->get('entity_type.manager'),
       $container->get('current_user'),
       $container->get('uuid'),
-      $container->get('user_match.service')
+      $container->get('user_match.service'),
+      $container->get('date.formatter'), // Add this
+      $container->get('renderer')
     );
   }
 
@@ -197,6 +219,30 @@ class MatchChatController extends ControllerBase
 
     if ($current_user_id != $user1_id && $current_user_id != $user2_id) {
       throw new NotFoundHttpException();
+    }
+
+    // Update last seen timestamp for the current user
+    $request_time = \Drupal::time()->getRequestTime();
+    $thread_updated = FALSE;
+    if ($current_user_id == $user1_id) {
+      if ($thread->getUser1LastSeenTimestamp() === NULL || $thread->getUser1LastSeenTimestamp() < $request_time) {
+        $thread->setUser1LastSeenTimestamp($request_time);
+        $thread_updated = TRUE;
+      }
+    } elseif ($current_user_id == $user2_id) {
+      if ($thread->getUser2LastSeenTimestamp() === NULL || $thread->getUser2LastSeenTimestamp() < $request_time) {
+        $thread->setUser2LastSeenTimestamp($request_time);
+        $thread_updated = TRUE;
+      }
+    }
+
+    if ($thread_updated) {
+      $thread->save(); // Save the thread with the updated timestamp
+      // This also invalidates 'match_thread:<thread_id>' tag
+      // And potentially the list tags if the 'changed' field is also updated by some other logic.
+      // To be safe, we might want to invalidate list tags here too,
+      // if seeing a message should re-sort the "my threads" list.
+      // For now, just saving is fine for unread count update on next list load.
     }
 
     /** @var \Drupal\user\UserInterface $current_user_entity */
@@ -348,5 +394,131 @@ class MatchChatController extends ControllerBase
       }
     }
     return $this->t('Chat');
+  }
+
+  /**
+   * Displays a list of chat threads for the current user with the last message.
+   *
+   * @return array
+   * A render array for the "My Chats" page.
+   */
+  public function myThreads()
+  {
+    $current_user_id = $this->currentUser->id();
+    $thread_storage = $this->entityTypeManager->getStorage('match_thread');
+    $message_storage = $this->entityTypeManager->getStorage('match_message');
+    // user_storage is not directly used in the loop for data gathering,
+    // but user objects are loaded via thread->getUser1/2()
+
+    $threads_data = [];
+    $cache_tags = ['match_thread_list', 'user:' . $current_user_id . ':match_threads_list'];
+
+    $query = $thread_storage->getQuery()
+      ->accessCheck(TRUE)
+      ->sort('changed', 'DESC');
+    $group = $query->orConditionGroup()
+      ->condition('user1', $current_user_id)
+      ->condition('user2', $current_user_id);
+    $query->condition($group);
+
+    $thread_ids = $query->execute();
+
+    if (!empty($thread_ids)) {
+      $threads = $thread_storage->loadMultiple($thread_ids);
+
+      /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+      foreach ($threads as $thread) {
+        $cache_tags[] = 'match_thread:' . $thread->id();
+
+        $user1 = $thread->getUser1();
+        $user2 = $thread->getUser2();
+
+        if (!$user1 || !$user2) {
+          \Drupal::logger('match_chat')->warning('Skipping thread ID @tid in myThreads due to incomplete participant data.', ['@tid' => $thread->id()]);
+          continue;
+        }
+
+        $other_user = ($user1->id() == $current_user_id) ? $user2 : $user1;
+
+        // Get last message (same logic as before)
+        // ... (ensure your full last message logic is here)
+        $last_message_query = $message_storage->getQuery()
+          ->accessCheck(TRUE)
+          ->condition('thread_id', $thread->id())
+          ->sort('created', 'DESC')
+          ->range(0, 1);
+        $last_message_ids = $last_message_query->execute();
+        $last_message_text = $this->t('No messages yet.');
+        $last_message_date = '';
+        $last_message_sender_name = '';
+        // ... (full logic for $last_message_text, $last_message_date, $last_message_sender_name)
+        if (!empty($last_message_ids)) {
+          /** @var \Drupal\match_chat\Entity\MatchMessageInterface $last_message */
+          $last_message = $message_storage->load(reset($last_message_ids));
+          if ($last_message) {
+            $message_content = $last_message->getMessage();
+            if (!empty($last_message->getChatImages())) {
+              $image_count = count($last_message->getChatImages());
+              $image_text = $this->formatPlural($image_count, '1 image', '@count images');
+              if (!empty(trim($message_content))) {
+                $message_content .= " (" . $image_text . ")";
+              } else {
+                $message_content = $image_text;
+              }
+            }
+            $last_message_text = $message_content;
+            $last_message_date = $this->dateFormatter->format($last_message->getCreatedTime(), 'short');
+            $last_message_sender = $last_message->getOwner();
+            if ($last_message_sender) {
+              $last_message_sender_name = ($last_message_sender->id() == $current_user_id) ? $this->t('You') : $last_message_sender->getDisplayName();
+            }
+          }
+        }
+
+
+        // Calculate unread messages
+        $unread_count = 0;
+        $last_seen_timestamp = 0;
+
+        if ($current_user_id == $user1->id()) {
+          $last_seen_timestamp = $thread->getUser1LastSeenTimestamp() ?? 0;
+        } elseif ($current_user_id == $user2->id()) {
+          $last_seen_timestamp = $thread->getUser2LastSeenTimestamp() ?? 0;
+        }
+
+        // Only count if last_seen_timestamp is set (meaning user has viewed the thread at least once)
+        // Or, count all messages from others if never seen. For this implementation,
+        // if last_seen_timestamp is 0 (default/never seen), all messages from other user are "new".
+        $unread_query = $message_storage->getQuery()
+          ->accessCheck(TRUE)
+          ->condition('thread_id', $thread->id())
+          ->condition('sender', $current_user_id, '<>') // Messages not from the current user
+          ->condition('created', $last_seen_timestamp, '>'); // Messages newer than last seen
+        $unread_count = (int) $unread_query->count()->execute();
+
+        $threads_data[] = [
+          'thread_uuid' => $thread->uuid(),
+          'other_user_name' => $other_user->getDisplayName(),
+          'other_user_picture' => $other_user->hasField('user_picture') && !$other_user->get('user_picture')->isEmpty() ? $this->entityTypeManager->getViewBuilder('user')->view($other_user, 'compact') : NULL,
+          'last_message_text' => $last_message_text,
+          'last_message_date' => $last_message_date,
+          'last_message_sender_name' => $last_message_sender_name,
+          'thread_url' => Url::fromRoute('match_chat.view_thread', ['match_thread_uuid' => $thread->uuid()])->toString(),
+          'unread_count' => $unread_count, // Pass the count to Twig
+        ];
+      }
+    }
+
+    $build['#theme'] = 'match_threads_list';
+    $build['#threads'] = $threads_data;
+    $build['#empty_message'] = $this->t('You have no active chats yet.');
+    $build['#attached']['library'][] = 'match_chat/match_chat_styles';
+
+    $build['#cache'] = [
+      'contexts' => ['user'], // The list depends on the current user
+      'tags' => $cache_tags,  // Tags to invalidate this cache item
+    ];
+
+    return $build;
   }
 }

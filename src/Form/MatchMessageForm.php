@@ -2,12 +2,13 @@
 
 namespace Drupal\match_chat\Form;
 
+use Drupal\Core\Cache\Cache;
 use Drupal\Core\Form\FormBase;
+use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\AppendCommand;
 use Drupal\Core\Ajax\InvokeCommand;
 use Drupal\Core\Ajax\ReplaceCommand;
-use Drupal\Core\Ajax\AppendCommand;
-use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
@@ -398,12 +399,26 @@ class MatchMessageForm extends FormBase
         'sender' => $this->currentUser->id(),
         'thread_id' => $values['thread_id'],
         'message' => $values['message'],
-        'chat_images' => $fids, // Use the potentially modified $fids
+        'chat_images' => $fids,
       ]);
       $message_entity->save();
 
+      // This updates the thread's 'changed' timestamp, which helps Drupal
+      // invalidate `match_thread:<id>` tag automatically if the entity is cached.
       $thread->setChangedTime(\Drupal::time()->getRequestTime());
-      $thread->save();
+      $thread->save(); // Saving the thread will also invalidate its specific cache tag.
+
+      // Manually invalidate list tags
+      $tags_to_invalidate = [
+        'match_thread_list', // General list tag
+      ];
+      if ($user1 = $thread->getUser1()) {
+        $tags_to_invalidate[] = 'user:' . $user1->id() . ':match_threads_list';
+      }
+      if ($user2 = $thread->getUser2()) {
+        $tags_to_invalidate[] = 'user:' . $user2->id() . ':match_threads_list';
+      }
+      Cache::invalidateTags($tags_to_invalidate);
 
       // Clear form values for the next message on AJAX rebuild.
       $form_state->setValue('message', '');

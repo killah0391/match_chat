@@ -1,0 +1,19 @@
+<?php
+
+use Drupal\Core\Database\Schema\Schema;
+
+/**
+* Add last seen timestamps to match_thread entities.
+*/
+function match_chat_update_10001(&$sandbox) { // Adjust 10001 to your next update number
+$spec = [
+'type' => 'int',
+'unsigned' => TRUE,
+'not null' => FALSE, // Allow NULL initially
+'description' => 'Timestamp of last seen message.',
+];
+\Drupal::database()->schema()->addField('match_thread', 'user1_last_seen_timestamp', $spec);
+\Drupal::database()->schema()->addField('match_thread', 'user2_last_seen_timestamp', $spec);
+
+return t('Added user1_last_seen_timestamp and user2_last_seen_timestamp fields to the match_thread table.');
+}

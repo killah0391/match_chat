@@ -143,6 +143,18 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
       ->setDisplayConfigurable('form', FALSE)
       ->setDisplayConfigurable('view', FALSE);
 
+    $fields['user1_last_seen_timestamp'] = BaseFieldDefinition::create('timestamp')
+      ->setLabel(t('User 1 Last Seen Timestamp'))
+      ->setDescription(t('The time User 1 last saw messages in this thread.'))
+      ->setDisplayConfigurable('form', FALSE)
+      ->setDisplayConfigurable('view', FALSE);
+
+    $fields['user2_last_seen_timestamp'] = BaseFieldDefinition::create('timestamp')
+      ->setLabel(t('User 2 Last Seen Timestamp'))
+      ->setDescription(t('The time User 2 last saw messages in this thread.'))
+      ->setDisplayConfigurable('form', FALSE)
+      ->setDisplayConfigurable('view', FALSE);
+
     $fields['created'] = BaseFieldDefinition::create('created')
       ->setLabel((string) t('Created')) // Cast to string
       ->setDescription((string) t('The time that the entity was created.')); // Cast to string
@@ -318,5 +330,39 @@ class MatchThread extends ContentEntityBase implements MatchThreadInterface
   public function bothParticipantsAllowUploads(): bool
   {
     return $this->getUser1AllowsUploads() && $this->getUser2AllowsUploads();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getUser1LastSeenTimestamp(): ?int
+  {
+    return $this->get('user1_last_seen_timestamp')->value ? (int) $this->get('user1_last_seen_timestamp')->value : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setUser1LastSeenTimestamp(int $timestamp): self
+  {
+    $this->set('user1_last_seen_timestamp', $timestamp);
+    return $this;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getUser2LastSeenTimestamp(): ?int
+  {
+    return $this->get('user2_last_seen_timestamp')->value ? (int) $this->get('user2_last_seen_timestamp')->value : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setUser2LastSeenTimestamp(int $timestamp): self
+  {
+    $this->set('user2_last_seen_timestamp', $timestamp);
+    return $this;
   }
 }

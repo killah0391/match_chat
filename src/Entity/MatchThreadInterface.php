@@ -175,4 +175,40 @@ interface MatchThreadInterface extends ContentEntityInterface, EntityChangedInte
    * @return $this
    */
   public function setBlockStatusByUser(UserInterface $blocker, bool $status): self;
+
+  /**
+   * Gets the timestamp when user 1 last saw messages in this thread.
+   *
+   * @return int|null
+   * The timestamp, or NULL if never recorded.
+   */
+  public function getUser1LastSeenTimestamp(): ?int;
+
+  /**
+   * Sets the timestamp when user 1 last saw messages in this thread.
+   *
+   * @param int $timestamp
+   * The timestamp.
+   *
+   * @return $this
+   */
+  public function setUser1LastSeenTimestamp(int $timestamp): self;
+
+  /**
+   * Gets the timestamp when user 2 last saw messages in this thread.
+   *
+   * @return int|null
+   * The timestamp, or NULL if never recorded.
+   */
+  public function getUser2LastSeenTimestamp(): ?int;
+
+  /**
+   * Sets the timestamp when user 2 last saw messages in this thread.
+   *
+   * @param int $timestamp
+   * The timestamp.
+   *
+   * @return $this
+   */
+  public function setUser2LastSeenTimestamp(int $timestamp): self;
 }

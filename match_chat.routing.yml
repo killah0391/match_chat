@@ -21,3 +21,10 @@ match_chat.view_thread:
     parameters:
       match_thread_uuid:
         type: string # We will load the entity manually by UUID in the controller
+match_chat.my_threads:
+  path: '/chat/my-threads'
+  defaults:
+    _controller: '\Drupal\match_chat\Controller\MatchChatController::myThreads'
+    _title: 'My Chats'
+  requirements:
+    _permission: 'access match chat'
