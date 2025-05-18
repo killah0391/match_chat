@@ -39,7 +39,6 @@ use Drupal\user\UserInterface; // Keep this for type hinting if you override own
  * "label" = "id",
  * },
  * links = {
- * "canonical" = "/chat/thread/{match_thread}",
  * "add-form" = "/admin/structure/match_thread/add",
  * "edit-form" = "/admin/structure/match_thread/{match_thread}/edit",
  * "delete-form" = "/admin/structure/match_thread/{match_thread}/delete",
