@@ -15,6 +15,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Drupal\match_chat\Entity\MatchThreadInterface;
 use Drupal\user_match\Service\UserMatchService; // Assuming this service is still relevant
 use Drupal\match_chat\Form\ChatSettingsPopoverForm; // Import the new form class
+use League\Container\Exception\NotFoundException;
 
 /**
  * Controller for Match Chat.
@@ -180,6 +181,7 @@ class MatchChatController extends ControllerBase
     if (empty($threads)) {
       throw new NotFoundHttpException();
     }
+
     /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
     $thread = reset($threads);
 
@@ -194,7 +196,7 @@ class MatchChatController extends ControllerBase
     $user2_id = $user2->id();
 
     if ($current_user_id != $user1_id && $current_user_id != $user2_id) {
-      throw new AccessDeniedHttpException();
+      throw new NotFoundHttpException();
     }
 
     /** @var \Drupal\user\UserInterface $current_user_entity */
