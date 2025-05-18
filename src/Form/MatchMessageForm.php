@@ -6,14 +6,14 @@ use Drupal\Core\Form\FormBase;
 use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\InvokeCommand;
 use Drupal\Core\Ajax\ReplaceCommand;
-use Drupal\Core\Ajax\MessageCommand;
+use Drupal\Core\Ajax\AppendCommand;
+use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\match_chat\Entity\MatchThreadInterface;
-use Drupal\match_chat\Controller\MatchChatController; // Used in ajaxSubmitCallback
+use Drupal\match_chat\Controller\MatchChatController;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-// use Drupal\Core\File\FileSystemInterface; // Not directly used now
 
 /**
  * Form for sending a new chat message.
@@ -24,6 +24,14 @@ class MatchMessageForm extends FormBase
   protected EntityTypeManagerInterface $entityTypeManager;
   protected AccountInterface $currentUser;
   protected ?MatchThreadInterface $thread = NULL;
+
+  /**
+   * Define a consistent selector for AJAX messages.
+   * Ensure this container exists in your HTML and is stable (not replaced by form AJAX).
+   * Example: In your main chat template, you might have <div class="chat-ajax-messages"></div>
+   * For now, using the one from your example.
+   */
+  const AJAX_MESSAGES_CONTAINER_SELECTOR = '.chat-status-messages'; // Or a more dedicated message div
 
   /**
    * Constructs a new MatchMessageForm.
@@ -111,18 +119,18 @@ class MatchMessageForm extends FormBase
     $form_disabled_due_to_block = $has_blocked_other || $is_blocked_by_other;
 
     if ($has_blocked_other) {
-      $other_user_obj = ($user1->id() === $current_user_id) ? $user2 : $user1;
+      $other_user_obj_display = ($user1->id() === $current_user_id) ? $user2->getDisplayName() : $user1->getDisplayName();
       $form['block_status_message'] = [
-        '#markup' => $this->t('You have blocked @username. Unblock via chat settings to send messages.', ['@username' => $other_user_obj->getDisplayName()]),
+        '#markup' => $this->t('You have blocked @username. Unblock via chat settings to send messages.', ['@username' => $other_user_obj_display]),
         '#prefix' => '<div class="messages messages--warning small p-2">',
         '#suffix' => '</div>',
         '#weight' => -20,
       ];
     } elseif ($is_blocked_by_other) {
-      $other_user_obj = ($user1->id() === $current_user_id) ? $user2 : $user1;
+      $other_user_obj_display = ($user1->id() === $current_user_id) ? $user2->getDisplayName() : $user1->getDisplayName();
       $form['block_status_message'] = [
-        '#markup' => $this->t('@username has blocked you. You cannot send messages.', ['@username' => $other_user_obj->getDisplayName()]),
-        '#prefix' => '<div class="messages messages--status small p-2">',
+        '#markup' => $this->t('@username has blocked you. You cannot send messages.', ['@username' => $other_user_obj_display]),
+        '#prefix' => '<div class="messages messages--status small p-2">', // Should this be warning or error?
         '#suffix' => '</div>',
         '#weight' => -20,
       ];
@@ -132,14 +140,13 @@ class MatchMessageForm extends FormBase
       '#type' => 'textarea',
       '#title' => $this->t('Message'),
       '#title_display' => 'invisible',
-      '#required' => FALSE,
+      '#required' => FALSE, // Validation logic will make it effectively required if no images
       '#attributes' => ['placeholder' => $this->t('Type your message...'), 'style' => 'resize: none;'],
       '#rows' => 3,
       '#disabled' => $form_disabled_due_to_block,
       '#weight' => -10,
     ];
 
-    // File upload field
     $both_participants_allow_uploads = $this->thread->bothParticipantsAllowUploads();
     $form['chat_images'] = [
       '#type' => 'managed_file',
@@ -152,7 +159,7 @@ class MatchMessageForm extends FormBase
       ],
       '#description' => $this->t('Allowed: png, gif, jpg, jpeg. Max 2MB/file. Max 3 files.'),
       '#disabled' => $form_disabled_due_to_block || !$both_participants_allow_uploads,
-      '#access' => TRUE,
+      '#access' => TRUE, // Access is controlled by #disabled and validation
       '#weight' => -5,
     ];
 
@@ -161,6 +168,7 @@ class MatchMessageForm extends FormBase
     } elseif (!$both_participants_allow_uploads) {
       $form['chat_images']['#prefix'] = '<div class="messages messages--warning small p-2">' . $this->t('File uploads are disabled. Both participants must allow them in chat settings.') . '</div>';
     }
+
 
     $form['thread_id'] = ['#type' => 'hidden', '#value' => $this->thread->id()];
 
@@ -173,8 +181,8 @@ class MatchMessageForm extends FormBase
       '#ajax' => [
         'callback' => '::ajaxSubmitCallback',
         'wrapper' => $form_wrapper_id,
-        'disable-refocus' => FALSE,
-        'effect' => 'fade',
+        'disable-refocus' => TRUE, // To prevent main window scroll
+        'effect' => 'fade',       // You can set to 'none' if fading causes issues
         'progress' => ['type' => 'throbber', 'message' => $this->t('Sending...')],
       ],
     ];
@@ -189,8 +197,6 @@ class MatchMessageForm extends FormBase
   {
     parent::validateForm($form, $form_state);
 
-    // This form is now only for sending messages.
-    // Block status checks for sending messages:
     $thread_id = $form_state->getValue('thread_id');
     /** @var \Drupal\match_chat\Entity\MatchThreadInterface|null $thread */
     $thread = $thread_id ? $this->entityTypeManager->getStorage('match_thread')->load($thread_id) : NULL;
@@ -210,7 +216,8 @@ class MatchMessageForm extends FormBase
         $form_state->setErrorByName('message', $this->t('This user has blocked you. You cannot send messages.'));
       }
     } else {
-      $form_state->setErrorByName('', $this->t('Current user could not be loaded.')); // General error
+      // This is a general error not specific to a field.
+      $form_state->setErrorByName('', $this->t('Current user could not be loaded.'));
     }
 
     // Proceed with message content validation only if no block related errors.
@@ -238,60 +245,59 @@ class MatchMessageForm extends FormBase
   public function ajaxSubmitCallback(array &$form, FormStateInterface $form_state): AjaxResponse
   {
     $response = new AjaxResponse();
-    // Construct the wrapper ID carefully, ensure $this->thread is available if $form_state doesn't have thread_id yet
-    // However, $form_state should have 'thread_id' as it's a hidden field in the submitted form.
     $thread_id_from_state = $form_state->getValue('thread_id');
+    // Fallback for thread ID if somehow not in form_state from hidden field (should be rare)
     if (empty($thread_id_from_state) && $this->thread) {
-      // Fallback if getValue is null for some reason during this phase but property is set
       $thread_id_from_state = $this->thread->id();
     }
     $form_wrapper_id = 'match-message-form-wrapper-' . $thread_id_from_state;
 
 
     if ($form_state->hasAnyErrors()) {
-      if (!empty($form_wrapper_id) && strpos($form_wrapper_id, 'match-message-form-wrapper-') === 0) { // Basic validation of wrapper_id
-        $response->addCommand(new ReplaceCommand('#' . $form_wrapper_id, $form));
-      } else {
-        // Log an error if wrapper ID is bad, as ReplaceCommand would fail.
-        \Drupal::logger('match_chat')->error('MatchMessageForm::ajaxSubmitCallback - Invalid form_wrapper_id for error replacement: @id', ['@id' => $form_wrapper_id]);
+      // Transfer FormState errors to messenger to use the deleteAll() pattern.
+      foreach ($form_state->getErrors() as $error_message_text) {
+        $this->messenger()->addError($error_message_text);
       }
-      foreach ($form_state->getErrors() as $name => $error_message) {
-        $response->addCommand(new MessageCommand($error_message, NULL, ['type' => 'error']));
+
+      $ajax_error_messages = \Drupal::messenger()->deleteAll(); // Retrieve and clear them.
+      if (!empty($ajax_error_messages)) {
+        $messages_render_array = [
+          '#theme'        => 'status_messages',
+          '#message_list' => $ajax_error_messages,
+          '#status_headings' => [ // Optional, for accessibility.
+            'error' => $this->t('Error message'),
+            'status' => $this->t('Status message'),
+            'warning' => $this->t('Warning message'),
+          ],
+        ];
+        // Clear previous AJAX messages from the target container.
+        $response->addCommand(new HtmlCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, ''));
+        $response->addCommand(new AppendCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, $messages_render_array));
       }
+      // Still replace the form, which will show inline errors if theme supports it for setErrorByName()
+      $response->addCommand(new ReplaceCommand('#' . $form_wrapper_id, $form));
       return $response;
     }
 
-    $form_state->setRebuild(TRUE);
+    // If we reach here, validation passed. submitForm() will be called by Form API.
+    // After submitForm() (implicitly), we update UI.
 
     /** @var \Drupal\match_chat\Entity\MatchThreadInterface|null $thread_entity */
-    // Use $this->thread if it's reliably set by buildForm and represents the current context.
-    // $form_state->getValue('thread_id') should also come from the submitted form.
     $thread_entity = $thread_id_from_state ? $this->entityTypeManager->getStorage('match_thread')->load($thread_id_from_state) : NULL;
-
-    // If $this->thread was set by buildForm, it might be more direct.
-    // However, reloading ensures we have the latest state if other AJAX actions modified it.
-    // For this callback, $this->thread should be the one associated with the form instance.
-    // Let's prefer $this->thread if available and seems correct.
-    if ($this->thread && $this->thread->id() == $thread_id_from_state) {
-      $thread_entity = $this->thread;
-    } elseif (!$thread_entity && $this->thread) {
-      // Fallback to form property if load failed but property exists
+    if ($this->thread && $this->thread->id() == $thread_id_from_state) { // Prefer injected thread if consistent
       $thread_entity = $this->thread;
     }
 
-
     if ($thread_entity) {
-      // --- CORRECTED CONTROLLER INSTANTIATION ---
       /** @var \Drupal\match_chat\Controller\MatchChatController|null $controller */
       $controller = NULL;
       try {
-        // Use Drupal's class resolver to get an instance of your controller.
-        // This correctly handles dependency injection for the controller.
         $controller = \Drupal::classResolver()->getInstanceFromDefinition(MatchChatController::class);
       } catch (\Exception $e) {
         \Drupal::logger('match_chat')->error('MatchMessageForm::ajaxSubmitCallback - Failed to instantiate MatchChatController: @message', ['@message' => $e->getMessage()]);
+        $this->messenger()->addError($this->t('Error updating message list. Please try again.'));
+        // This error will be picked up by the message handling block below.
       }
-      // --- END CORRECTION ---
 
       /** @var \Drupal\user\UserInterface|null $current_user_obj */
       $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
@@ -299,29 +305,50 @@ class MatchMessageForm extends FormBase
       if ($controller && $current_user_obj) {
         $has_blocked_other = $thread_entity->hasUserBlockedOther($current_user_obj);
         $is_blocked_by_other = $thread_entity->isUserBlockedByOther($current_user_obj);
-
-        // Call renderMessages on the controller instance.
         $build = $controller->renderMessages($thread_entity, $current_user_obj, $has_blocked_other, $is_blocked_by_other);
         $messages_html_output = \Drupal::service('renderer')->renderRoot($build['messages_list']);
         $response->addCommand(new ReplaceCommand('#match-chat-messages-wrapper', $messages_html_output));
       } else {
-        $log_msg = 'MatchMessageForm::ajaxSubmitCallback - Could not re-render messages. ';
-        if (!$controller) $log_msg .= 'Controller not loaded. ';
-        if (!$current_user_obj) $log_msg .= 'Current user object not loaded.';
-        \Drupal::logger('match_chat')->error($log_msg);
+        if (!$controller) \Drupal::logger('match_chat')->error('MatchMessageForm::ajaxSubmitCallback - Controller not loaded.');
+        if (!$current_user_obj) \Drupal::logger('match_chat')->error('MatchMessageForm::ajaxSubmitCallback - Current user object not loaded.');
+        // Optionally add a user-facing error if message list couldn't be updated.
+        // $this->messenger()->addError($this->t('Could not refresh messages at this time.'));
       }
     } else {
       \Drupal::logger('match_chat')->error('MatchMessageForm::ajaxSubmitCallback - Thread entity not loaded for ID: @tid', ['@tid' => $thread_id_from_state]);
+      $this->messenger()->addError($this->t('Error: Chat thread could not be loaded to refresh messages.'));
     }
 
     // Rebuild and replace this form.
-    // $form here is the structure from the last buildForm call for this request.
-    // $form_state has the current state, including submitted values (now cleared in submitForm).
-    // rebuildForm will call buildForm again, which should give a fresh, empty form.
+    // submitForm() (called by Form API before this if no validation errors) should have cleared form values.
     $rebuilt_form = \Drupal::formBuilder()->rebuildForm($this->getFormId(), $form_state, $form);
     if (!empty($form_wrapper_id) && strpos($form_wrapper_id, 'match-message-form-wrapper-') === 0) {
       $response->addCommand(new ReplaceCommand('#' . $form_wrapper_id, $rebuilt_form));
     }
+
+    // Add success message IF no errors occurred during the whole process.
+    // submitForm() itself might set $form_state errors if an exception occurs during save.
+    if (!$form_state->hasAnyErrors()) {
+      $this->messenger()->addStatus($this->t('Message sent.'));
+    }
+
+    // Display any Drupal messages (status or errors that might have occurred after initial validation).
+    $ajax_messages = \Drupal::messenger()->deleteAll();
+    if (!empty($ajax_messages)) {
+      $messages_render_array = [
+        '#theme'        => 'status_messages',
+        '#message_list' => $ajax_messages,
+        '#status_headings' => [
+          'error' => $this->t('Error message'),
+          'status' => $this->t('Status message'),
+          'warning' => $this->t('Warning message'),
+        ],
+      ];
+      // Clear previous AJAX messages from the target container.
+      $response->addCommand(new HtmlCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, ''));
+      $response->addCommand(new AppendCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, $messages_render_array));
+    }
+
     $response->addCommand(new InvokeCommand('.chat-messages-scroll-container', 'matchChatScrollToBottom'));
 
     return $response;
@@ -332,8 +359,9 @@ class MatchMessageForm extends FormBase
    */
   public function submitForm(array &$form, FormStateInterface $form_state): void
   {
+    // This check is mostly for non-AJAX submissions or if AJAX somehow bypassed validation.
     if ($form_state->hasAnyErrors()) {
-      return; // Errors should be handled by AJAX callback or caught in validateForm.
+      return;
     }
 
     $values = $form_state->getValues();
@@ -341,24 +369,27 @@ class MatchMessageForm extends FormBase
     $thread = $this->entityTypeManager->getStorage('match_thread')->load($values['thread_id']);
 
     if (!$thread) {
+      // For non-AJAX, this is fine. For AJAX, ajaxSubmitCallback should catch this.
+      $form_state->setErrorByName('', $this->t('Chat thread not found. Message not sent.'));
       $this->messenger()->addError($this->t('Chat thread not found. Message not sent.'));
       return;
     }
 
-    // Final server-side check for block status (belt and braces).
     /** @var \Drupal\user\UserInterface|null $current_user_obj */
     $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
     if ($current_user_obj && ($thread->hasUserBlockedOther($current_user_obj) || $thread->isUserBlockedByOther($current_user_obj))) {
+      $form_state->setErrorByName('', $this->t('Message not sent due to an active block in this chat.'));
       $this->messenger()->addError($this->t('Message not sent due to an active block in this chat.'));
-      $form_state->setRebuild(TRUE);
+      // $form_state->setRebuild(TRUE); // Not needed if error is set, form won't proceed.
       return;
     }
 
     $fids = $values['chat_images'] ?? [];
     if (!empty($fids) && !$thread->bothParticipantsAllowUploads()) {
-      // This message might be redundant if the field was disabled and validated, but good for direct POST attempts.
-      $this->messenger()->addError($this->t('File uploads are not permitted by both participants. Message sent without files.'));
-      $fids = [];
+      // This case should ideally be caught by validation, but as a fallback:
+      $form_state->setErrorByName('chat_images', $this->t('File uploads are not permitted by both participants. Message sent without files.'));
+      $this->messenger()->addWarning($this->t('File uploads are not permitted by both participants. Message sent without files.'));
+      $fids = []; // Do not save files.
     }
 
     try {
@@ -367,25 +398,36 @@ class MatchMessageForm extends FormBase
         'sender' => $this->currentUser->id(),
         'thread_id' => $values['thread_id'],
         'message' => $values['message'],
-        'chat_images' => $fids,
+        'chat_images' => $fids, // Use the potentially modified $fids
       ]);
       $message_entity->save();
 
       $thread->setChangedTime(\Drupal::time()->getRequestTime());
       $thread->save();
 
-      // Clear values for the next message on AJAX rebuild.
+      // Clear form values for the next message on AJAX rebuild.
       $form_state->setValue('message', '');
-      $form_state->setValue('chat_images', []);
+      $form_state->setValue('chat_images', []); // Clear selected files.
+      // Crucial for managed_file to reset properly after AJAX.
       $user_input = $form_state->getUserInput();
-      unset($user_input['message'], $user_input['chat_images']);
+      unset($user_input['message']);
+      // For managed_file, the 'chat_images[fids]' might be what needs unsetting if issues persist.
+      // Or just clearing the whole 'chat_images' array from user input.
+      unset($user_input['chat_images']);
       $form_state->setUserInput($user_input);
+      $form_state->setRebuild(TRUE); // Ensure form is rebuilt fresh.
 
+
+      // Success message for non-AJAX. AJAX success is handled in ajaxSubmitCallback.
       if (!$this->getRequest()->isXmlHttpRequest()) {
         $this->messenger()->addStatus($this->t('Message sent.'));
       }
     } catch (\Exception $e) {
-      $this->messenger()->addError($this->t('An error occurred while sending the message: @error', ['@error' => $e->getMessage()]));
+      $error_message_for_user = $this->t('An error occurred while sending the message. Please try again.');
+      // Set error on form state so ajaxSubmitCallback can pick it up if this method is called within AJAX flow.
+      $form_state->setErrorByName('', $error_message_for_user);
+      // Also add to messenger for non-AJAX or as a fallback.
+      $this->messenger()->addError($error_message_for_user);
       \Drupal::logger('match_chat')->error('Error sending message: @error. Trace: @trace', ['@error' => $e->getMessage(), '@trace' => $e->getTraceAsString()]);
     }
   }
