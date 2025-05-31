@@ -136,47 +136,6 @@ interface MatchThreadInterface extends ContentEntityInterface, EntityChangedInte
   public function bothParticipantsAllowUploads(): bool;
 
   /**
-   * Checks if the $blocker user has blocked the other participant in this thread.
-   *
-   * For example, if $blocker is User1, this checks user1_blocked_user2.
-   *
-   * @param \Drupal\user\UserInterface $blocker
-   * The user to check if they have initiated a block.
-   *
-   * @return bool
-   * TRUE if $blocker has blocked the other participant, FALSE otherwise.
-   */
-  public function hasUserBlockedOther(UserInterface $blocker): bool;
-
-  /**
-   * Checks if the $user is blocked by the other participant in this thread.
-   *
-   * For example, if $user is User1, this checks user2_blocked_user1.
-   *
-   * @param \Drupal\user\UserInterface $user
-   * The user to check if they are blocked.
-   *
-   * @return bool
-   * TRUE if $user is blocked by the other participant, FALSE otherwise.
-   */
-  public function isUserBlockedByOther(UserInterface $user): bool;
-
-  /**
-   * Sets the block status initiated by the $blocker user towards the other participant.
-   *
-   * If $blocker is User1, this sets user1_blocked_user2.
-   * If $blocker is User2, this sets user2_blocked_user1.
-   *
-   * @param \Drupal\user\UserInterface $blocker
-   * The user initiating the block/unblock action.
-   * @param bool $status
-   * TRUE to block, FALSE to unblock.
-   *
-   * @return $this
-   */
-  public function setBlockStatusByUser(UserInterface $blocker, bool $status): self;
-
-  /**
    * Gets the timestamp when user 1 last saw messages in this thread.
    *
    * @return int|null

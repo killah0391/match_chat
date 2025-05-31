@@ -115,25 +115,52 @@ class MatchMessageForm extends FormBase
     $form['#prefix'] = '<div id="' . $form_wrapper_id . '">';
     $form['#suffix'] = '</div>';
 
-    $has_blocked_other = $this->thread->hasUserBlockedOther($current_user_obj);
-    $is_blocked_by_other = $this->thread->isUserBlockedByOther($current_user_obj);
-    $form_disabled_due_to_block = $has_blocked_other || $is_blocked_by_other;
+    // --- Block Checking Logic ---
+    $block_message_text = '';
+    $chat_is_disabled_due_to_block = FALSE;
 
-    if ($has_blocked_other) {
-      $other_user_obj_display = ($user1->id() === $current_user_id) ? $user2->getDisplayName() : $user1->getDisplayName();
-      $form['block_status_message'] = [
-        '#markup' => $this->t('You have blocked @username. Unblock via chat settings to send messages.', ['@username' => $other_user_obj_display]),
-        '#prefix' => '<div class="messages messages--warning small p-2">',
-        '#suffix' => '</div>',
-        '#weight' => -20,
-      ];
-    } elseif ($is_blocked_by_other) {
-      $other_user_obj_display = ($user1->id() === $current_user_id) ? $user2->getDisplayName() : $user1->getDisplayName();
-      $form['block_status_message'] = [
-        '#markup' => $this->t('@username has blocked you. You cannot send messages.', ['@username' => $other_user_obj_display]),
-        '#prefix' => '<div class="messages messages--status small p-2">', // Should this be warning or error?
-        '#suffix' => '</div>',
-        '#weight' => -20,
+    // Determine the other user in the chat.
+    $other_user_in_thread = NULL;
+    if ($user1 && $user2 && $current_user_obj) {
+      if ($user1->id() === $current_user_obj->id()) {
+        $other_user_in_thread = $user2;
+      } elseif ($user2->id() === $current_user_obj->id()) {
+        $other_user_in_thread = $user1;
+      }
+    }
+
+    if ($other_user_in_thread) { // Ensure other user is identified
+      $block_storage = $this->entityTypeManager->getStorage('match_abuse_block');
+
+      // Check if current user blocked the other user.
+      $query_current_blocks_other = $block_storage->getQuery()
+        ->condition('blocker_uid', $current_user_obj->id())
+        ->condition('blocked_uid', $other_user_in_thread->id())
+        ->accessCheck(TRUE)
+        ->count();
+      $current_user_blocks_other = $query_current_blocks_other->execute() > 0;
+
+      // Check if other user blocked the current user.
+      $query_other_blocks_current = $block_storage->getQuery()
+        ->condition('blocker_uid', $other_user_in_thread->id())
+        ->condition('blocked_uid', $current_user_obj->id())
+        ->accessCheck(TRUE)
+        ->count();
+      $other_user_blocks_current = $query_other_blocks_current->execute() > 0;
+
+      if ($current_user_blocks_other) {
+        $block_message_text = $this->t('You have blocked @username. Chatting and file uploads are disabled.', ['@username' => $other_user_in_thread->getAccountName()]);
+        $chat_is_disabled_due_to_block = TRUE;
+      } elseif ($other_user_blocks_current) {
+        $block_message_text = $this->t('@username has blocked you. Chatting and file uploads are disabled.', ['@username' => $other_user_in_thread->getAccountName()]);
+        $chat_is_disabled_due_to_block = TRUE;
+      }
+    }
+
+    if ($chat_is_disabled_due_to_block) {
+      $form['block_info_message'] = [
+        '#markup' => '<div class="alert alert-warning small p-2 my-2">' . $block_message_text . '</div>',
+        '#weight' => -20, // Display very early in the form.
       ];
     }
 
@@ -141,10 +168,10 @@ class MatchMessageForm extends FormBase
       '#type' => 'textarea',
       '#title' => $this->t('Message'),
       '#title_display' => 'invisible',
+      '#disabled' => $chat_is_disabled_due_to_block,
       '#required' => FALSE, // Validation logic will make it effectively required if no images
       '#attributes' => ['placeholder' => $this->t('Type your message...'), 'style' => 'resize: none;'],
       '#rows' => 3,
-      '#disabled' => $form_disabled_due_to_block,
       '#weight' => -10,
     ];
 
@@ -159,15 +186,13 @@ class MatchMessageForm extends FormBase
         'file_validate_size' => [2 * 1024 * 1024], // 2MB
       ],
       '#description' => $this->t('Allowed: png, gif, jpg, jpeg. Max 2MB/file. Max 3 files.'),
-      '#disabled' => $form_disabled_due_to_block || !$both_participants_allow_uploads,
       '#access' => TRUE, // Access is controlled by #disabled and validation
+      '#disabled' => $chat_is_disabled_due_to_block || !$both_participants_allow_uploads,
       '#weight' => -5,
     ];
 
-    if ($form_disabled_due_to_block) {
-      $form['chat_images']['#prefix'] = '<div class="messages messages--warning small p-2">' . $this->t('File uploads are disabled due to an active block.') . '</div>';
-    } elseif (!$both_participants_allow_uploads) {
-      $form['chat_images']['#prefix'] = '<div class="messages messages--warning small p-2">' . $this->t('File uploads are disabled. Both participants must allow them in chat settings.') . '</div>';
+    if (!$chat_is_disabled_due_to_block && !$both_participants_allow_uploads) {
+      $form['chat_images']['#prefix'] = '<div class="alert alert-info small p-2 my-2">' . $this->t('File uploads are disabled. Both participants must allow them in chat settings.') . '</div>';
     }
 
 
@@ -178,7 +203,6 @@ class MatchMessageForm extends FormBase
     $form['actions']['submit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Send'),
-      '#disabled' => $form_disabled_due_to_block,
       '#ajax' => [
         'callback' => '::ajaxSubmitCallback',
         'wrapper' => $form_wrapper_id,
@@ -186,6 +210,7 @@ class MatchMessageForm extends FormBase
         'effect' => 'fade',       // You can set to 'none' if fading causes issues
         'progress' => ['type' => 'throbber', 'message' => $this->t('Sending...')],
       ],
+      '#disabled' => $chat_is_disabled_due_to_block,
     ];
 
     return $form;
@@ -210,13 +235,7 @@ class MatchMessageForm extends FormBase
     /** @var \Drupal\user\UserInterface|null $current_user_obj */
     $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
 
-    if ($current_user_obj) {
-      if ($thread->hasUserBlockedOther($current_user_obj)) {
-        $form_state->setErrorByName('message', $this->t('You have blocked this user. Unblock to send messages.'));
-      } elseif ($thread->isUserBlockedByOther($current_user_obj)) {
-        $form_state->setErrorByName('message', $this->t('This user has blocked you. You cannot send messages.'));
-      }
-    } else {
+    if (!$current_user_obj) {
       // This is a general error not specific to a field.
       $form_state->setErrorByName('', $this->t('Current user could not be loaded.'));
     }
@@ -304,9 +323,7 @@ class MatchMessageForm extends FormBase
       $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
 
       if ($controller && $current_user_obj) {
-        $has_blocked_other = $thread_entity->hasUserBlockedOther($current_user_obj);
-        $is_blocked_by_other = $thread_entity->isUserBlockedByOther($current_user_obj);
-        $build = $controller->renderMessages($thread_entity, $current_user_obj, $has_blocked_other, $is_blocked_by_other);
+        $build = $controller->renderMessages($thread_entity, $current_user_obj);
         $messages_html_output = \Drupal::service('renderer')->renderRoot($build['messages_list']);
         $response->addCommand(new ReplaceCommand('#match-chat-messages-wrapper', $messages_html_output));
       } else {
@@ -378,12 +395,6 @@ class MatchMessageForm extends FormBase
 
     /** @var \Drupal\user\UserInterface|null $current_user_obj */
     $current_user_obj = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
-    if ($current_user_obj && ($thread->hasUserBlockedOther($current_user_obj) || $thread->isUserBlockedByOther($current_user_obj))) {
-      $form_state->setErrorByName('', $this->t('Message not sent due to an active block in this chat.'));
-      $this->messenger()->addError($this->t('Message not sent due to an active block in this chat.'));
-      // $form_state->setRebuild(TRUE); // Not needed if error is set, form won't proceed.
-      return;
-    }
 
     $fids = $values['chat_images'] ?? [];
     if (!empty($fids) && !$thread->bothParticipantsAllowUploads()) {

@@ -250,10 +250,7 @@ class MatchChatController extends ControllerBase
     /** @var \Drupal\user\UserInterface $other_user_entity */
     $other_user_entity = ($user1_id == $current_user_id) ? $user2 : $user1;
 
-    $has_current_user_blocked_other = $thread->hasUserBlockedOther($current_user_entity);
-    $is_current_user_blocked_by_other = $thread->isUserBlockedByOther($current_user_entity);
-
-    $messages_render_array = $this->renderMessages($thread, $current_user_entity, $has_current_user_blocked_other, $is_current_user_blocked_by_other);
+    $messages_render_array = $this->renderMessages($thread, $current_user_entity);
 
     // Main message input form
     $message_form = $this->formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
@@ -269,8 +266,6 @@ class MatchChatController extends ControllerBase
       '#chat_settings_popover_form' => $chat_settings_popover_form, // Pass the new form
       '#current_user_entity' => $current_user_entity,
       '#other_user_entity' => $other_user_entity,
-      '#has_current_user_blocked_other' => $has_current_user_blocked_other,
-      '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
       '#attached' => [
         'library' => [
           'core/drupal.ajax',
@@ -307,8 +302,6 @@ class MatchChatController extends ControllerBase
   public function renderMessages(
     MatchThreadInterface $thread,
     UserInterface $current_user_entity,
-    bool $has_current_user_blocked_other,
-    bool $is_current_user_blocked_by_other
   ) {
     $message_storage = $this->entityTypeManager->getStorage('match_message');
     $query = $message_storage->getQuery()
@@ -345,13 +338,7 @@ class MatchChatController extends ControllerBase
 
     // Update empty message based on block status
     if (empty($messages_for_list_items)) {
-      if ($has_current_user_blocked_other) {
-        $actual_list_of_messages['#empty'] = $this->t('You have blocked this user. No new messages can be exchanged.');
-      } elseif ($is_current_user_blocked_by_other) {
-        $actual_list_of_messages['#empty'] = $this->t('This user has blocked you. No new messages can be exchanged.');
-      } else {
         $actual_list_of_messages['#empty'] = $this->t('No messages yet. Be the first to say hello!');
-      }
     }
 
 

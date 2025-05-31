@@ -23,17 +23,6 @@
   This template would be effectively overriding the 'children' part of a standard form.html.twig.
 #}
 
-{# Render the "Block User" checkbox. You can add Bootstrap classes here or in Form API #}
-	<div
-	class="form-check form-switch mb-2"> {# Bootstrap 5 switch styling #}
-	{{ form.toggle_block.label_attributes.addClass('form-check-label') }}
-	{# Add class to label if needed #}
-	{{ form.toggle_block.attributes.addClass('form-check-input') }}
-	{# Add class to input if needed #}
-	{{ form.toggle_block }}
-	{# This renders the input and its label #}
-</div>
-
 {# Render the "Allow File Uploads" checkbox #}
 <div
 	class="form-check form-switch">
@@ -48,4 +37,4 @@
   and elements added by Drupal like form_build_id, form_id, and form_token.
   The |without filter helps render everything else that you haven't explicitly rendered.
 #}
-{{ form|without('toggle_block', 'allow_uploads') }}
+{{ form|without('allow_uploads') }}
