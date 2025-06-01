@@ -12,6 +12,7 @@ use Drupal\Core\Ajax\AnnounceCommand;
 use Drupal\Core\Ajax\AppendCommand;
 use Drupal\Core\Ajax\HtmlCommand; // To clear previous messages from the target container
 use Drupal\match_chat\Entity\MatchThreadInterface;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 // No need for ShowBootstrapToastCommand
@@ -93,6 +94,10 @@ class ChatSettingsPopoverForm extends FormBase
     $form['main_message_form_wrapper_id'] = ['#type' => 'hidden', '#value' => 'match-message-form-wrapper-' . $thread->id()];
     $form['this_popover_form_wrapper_id'] = ['#type' => 'hidden', '#value' => $form_internal_wrapper_id];
 
+    // The thread ID (UUID) will be passed as a query parameter to the AJAX block/unblock URLs.
+    // This allows the MatchAbuseController to know which MatchMessageForm to refresh.
+    $chat_thread_id_for_query_param = $thread->id(); // This is the UUID.
+
     // Determine the other user in the chat.
     $other_user_in_chat = NULL;
     if ($user1->id() === $current_user_obj->id()) {
@@ -111,32 +116,38 @@ class ChatSettingsPopoverForm extends FormBase
         ->accessCheck(TRUE);
       $existing_block_ids = $query->execute();
 
+      // Prepare for Bootstrap icon button
       $block_link_wrapper_id = 'match-abuse-block-link-wrapper-' . $other_user_in_chat->id();
-      $block_links_array = [];
+      $icon_markup = '<i class="bi bi-person-slash" aria-hidden="true"></i> ';
+      $link_attributes_base = ['use-ajax', 'match-abuse-link', 'btn', 'd-block', 'w-100'];
+      $link_title_text = '';
+      $link_url = NULL;
+      $final_link_attributes = [];
 
       if (empty($existing_block_ids)) {
-        $block_links_array['block_user'] = [
-          'title' => $this->t('Block @username', ['@username' => $other_user_in_chat->getAccountName()]),
-          'url' => Url::fromRoute('match_abuse.ajax_block_user', ['user_to_block' => $other_user_in_chat->id()]),
-          'attributes' => ['class' => ['use-ajax', 'match-abuse-link', 'btn', 'btn-sm', 'btn-danger', 'mt-2', 'w-100']],
-        ];
+        $link_title_text = $this->t('Block @username', ['@username' => $other_user_in_chat->getAccountName()]);
+        $link_url = Url::fromRoute('match_abuse.ajax_block_user', ['user_to_block' => $other_user_in_chat->id()], ['query' => ['chat_thread_id' => $chat_thread_id_for_query_param]]);
+        $final_link_attributes = array_merge($link_attributes_base, ['rounded-top-0','btn-danger', 'text-muted']);
       }
       else {
-        $block_links_array['unblock_user'] = [
-          'title' => $this->t('Unblock @username', ['@username' => $other_user_in_chat->getAccountName()]),
-          'url' => Url::fromRoute('match_abuse.ajax_unblock_user', ['user_to_unblock' => $other_user_in_chat->id()]),
-          'attributes' => ['class' => ['use-ajax', 'match-abuse-link', 'btn', 'btn-sm', 'btn-info', 'mt-2', 'w-100']],
-        ];
+        $link_title_text = $this->t('Unblock @username', ['@username' => $other_user_in_chat->getAccountName()]);
+        $link_url = Url::fromRoute('match_abuse.ajax_unblock_user', ['user_to_unblock' => $other_user_in_chat->id()], ['query' => ['chat_thread_id' => $chat_thread_id_for_query_param]]);
+        $final_link_attributes = array_merge($link_attributes_base, ['rounded-top-0','btn-success', 'text-muted']);
       }
 
       $form['block_user_action_wrapper'] = [
         '#type' => 'container',
-        '#attributes' => ['id' => $block_link_wrapper_id], // Target for MatchAbuseController's ReplaceCommand
-        '#weight' => 10, // Adjust weight as needed
-        'link' => [
-          '#theme' => 'links', // Consistent with MatchAbuseController's link rendering
-          '#links' => $block_links_array,
-          '#attributes' => ['class' => ['list-unstyled', 'p-0', 'm-0']], // Optional: style UL
+        '#attributes' => ['id' => $block_link_wrapper_id, 'class' => ['mt-3', 'mb-n4', 'mx-n4']], // Target for ReplaceCommand & spacing
+        '#weight' => 100, // High weight to push to the bottom
+        'block_button_link' => [
+          '#type' => 'link',
+          '#title' => Markup::create($icon_markup . htmlspecialchars($link_title_text)),
+          '#url' => $link_url,
+          '#attributes' => [
+            'class' => $final_link_attributes,
+            'role' => 'button',
+            'aria-label' => $link_title_text, // Full text for accessibility
+          ],
         ],
       ];
 
