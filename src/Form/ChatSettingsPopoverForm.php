@@ -12,10 +12,8 @@ use Drupal\Core\Ajax\AnnounceCommand;
 use Drupal\Core\Ajax\AppendCommand;
 use Drupal\Core\Ajax\HtmlCommand; // To clear previous messages from the target container
 use Drupal\match_chat\Entity\MatchThreadInterface;
-use Drupal\Core\Render\Markup;
-use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-// No need for ShowBootstrapToastCommand
+use Drupal\Core\StringTranslation\StringTranslationTrait;
 
 /**
  * Provides a form for chat settings (file uploads) within a popover.
@@ -24,19 +22,39 @@ class ChatSettingsPopoverForm extends FormBase
 {
 
   protected EntityTypeManagerInterface $entityTypeManager;
+  use StringTranslationTrait;
+
+  /**
+   * The MatchAbuseController.
+   *
+   * @var \Drupal\match_abuse\Controller\MatchAbuseController|null
+   */
+  protected $matchAbuseController;
+
+  /**
+   * The current user.
+   *
+   * @var \Drupal\Core\Session\AccountInterface
+   */
   protected AccountInterface $currentUser;
 
   // Target selector for AJAX messages, consistent with MatchMessageForm if desired.
   // Or a more specific one if popover messages need a different location.
   const AJAX_MESSAGES_CONTAINER_SELECTOR = '.chat-status-messages'; // Or another stable selector
 
-  /**
-   * Constructs a new ChatSettingsPopoverForm.
-   */
-  public function __construct(EntityTypeManagerInterface $entity_type_manager, AccountInterface $current_user)
+ /**
+  * @param \Drupal\match_abuse\Controller\MatchAbuseController|null $match_abuse_controller
+  *   The match abuse controller.
+  */
+  public function __construct(
+    EntityTypeManagerInterface $entity_type_manager,
+    AccountInterface $current_user,
+    ?\Drupal\match_abuse\Controller\MatchAbuseController $match_abuse_controller
+  )
   {
     $this->entityTypeManager = $entity_type_manager;
     $this->currentUser = $current_user;
+    $this->matchAbuseController = $match_abuse_controller;
   }
 
   /**
@@ -46,7 +64,8 @@ class ChatSettingsPopoverForm extends FormBase
   {
     return new static(
       $container->get('entity_type.manager'),
-      $container->get('current_user')
+      $container->get('current_user'),
+      $container->get('class_resolver')->getInstanceFromDefinition(\Drupal\match_abuse\Controller\MatchAbuseController::class)
     );
   }
 
@@ -108,48 +127,31 @@ class ChatSettingsPopoverForm extends FormBase
     }
 
     // Add Block/Unblock link if applicable.
-    if ($other_user_in_chat && $this->currentUser->id() != $other_user_in_chat->id() && $this->currentUser->hasPermission('block users')) {
-      $block_storage = $this->entityTypeManager->getStorage('match_abuse_block');
-      $query = $block_storage->getQuery()
-        ->condition('blocker_uid', $this->currentUser->id())
-        ->condition('blocked_uid', $other_user_in_chat->id())
-        ->accessCheck(TRUE);
-      $existing_block_ids = $query->execute();
+    if ($other_user_in_chat &&
+        $this->currentUser->id() != $other_user_in_chat->id() &&
+        $this->currentUser->hasPermission('block users') &&
+        $this->matchAbuseController
+    ) {
+        // Define the specific options for the chat popover context.
+        // These ensure the link triggers the modal and is styled for the popover.
+        $chat_popover_link_options = [
+            'wrapper_classes' => ['mt-3', 'mb-n4', 'mx-n4', 'js-form-wrapper', 'form-wrapper', 'mb-3'],
+            // 'match-abuse-confirm-trigger' is added by MatchAbuseController by default now.
+            // 'use-ajax' is omitted as modal handles the action.
+            'link_classes_base' => ['js-match-abuse-confirm-action', 'match-abuse-link', 'btn', 'd-block', 'w-100', 'rounded-top-0'],
+            'link_classes_block_state' => ['btn-danger', 'text-muted'],
+            'link_classes_unblock_state' => ['btn-success', 'text-muted'],
+            // Icon will use the default from MatchAbuseController::getBlockLinkRenderArray.
+        ];
 
-      // Prepare for Bootstrap icon button
-      $block_link_wrapper_id = 'match-abuse-block-link-wrapper-' . $other_user_in_chat->id();
-      $icon_markup = '<i class="bi bi-person-slash" aria-hidden="true"></i> ';
-      $link_attributes_base = ['use-ajax', 'match-abuse-link', 'btn', 'd-block', 'w-100'];
-      $link_title_text = '';
-      $link_url = NULL;
-      $final_link_attributes = [];
-
-      if (empty($existing_block_ids)) {
-        $link_title_text = $this->t('Block @username', ['@username' => $other_user_in_chat->getAccountName()]);
-        $link_url = Url::fromRoute('match_abuse.ajax_block_user', ['user_to_block' => $other_user_in_chat->id()], ['query' => ['chat_thread_id' => $chat_thread_id_for_query_param]]);
-        $final_link_attributes = array_merge($link_attributes_base, ['rounded-top-0','btn-danger', 'text-muted']);
-      }
-      else {
-        $link_title_text = $this->t('Unblock @username', ['@username' => $other_user_in_chat->getAccountName()]);
-        $link_url = Url::fromRoute('match_abuse.ajax_unblock_user', ['user_to_unblock' => $other_user_in_chat->id()], ['query' => ['chat_thread_id' => $chat_thread_id_for_query_param]]);
-        $final_link_attributes = array_merge($link_attributes_base, ['rounded-top-0','btn-success', 'text-muted']);
-      }
-
-      $form['block_user_action_wrapper'] = [
-        '#type' => 'container',
-        '#attributes' => ['id' => $block_link_wrapper_id, 'class' => ['mt-3', 'mb-n4', 'mx-n4']], // Target for ReplaceCommand & spacing
-        '#weight' => 100, // High weight to push to the bottom
-        'block_button_link' => [
-          '#type' => 'link',
-          '#title' => Markup::create($icon_markup . htmlspecialchars($link_title_text)),
-          '#url' => $link_url,
-          '#attributes' => [
-            'class' => $final_link_attributes,
-            'role' => 'button',
-            'aria-label' => $link_title_text, // Full text for accessibility
-          ],
-        ],
-      ];
+        $form['block_user_action_wrapper'] = $this->matchAbuseController->getBlockLinkRenderArray(
+            $other_user_in_chat,
+            $chat_thread_id_for_query_param,
+            $chat_popover_link_options // Pass the specific options for chat popover
+        );
+        // The key 'block_user_action_wrapper' must match the one used in
+        // MatchAbuseController for AJAX replacement to work correctly.
+        $form['block_user_action_wrapper']['#weight'] = 100; // High weight to push to the bottom
 
       // Attach libraries required for AJAX link and toast notifications.
       $form['#attached']['library'][] = 'core/drupal.ajax';
