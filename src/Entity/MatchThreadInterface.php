@@ -170,26 +170,4 @@ interface MatchThreadInterface extends ContentEntityInterface, EntityChangedInte
    * @return $this
    */
   public function setUser2LastSeenTimestamp(int $timestamp): self;
-
-  /**
-   * Checks if the given user has blocked the other participant in this thread.
-   *
-   * @param \Drupal\user\UserInterface $user
-   *   The user to check (must be a participant in the thread).
-   *
-   * @return bool
-   *   TRUE if the user has blocked the other participant, FALSE otherwise.
-   */
-  public function hasUserBlockedOther(UserInterface $user): bool;
-
-  /**
-   * Checks if the given user is blocked by the other participant in this thread.
-   *
-   * @param \Drupal\user\UserInterface $user
-   *   The user to check (must be a participant in the thread).
-   *
-   * @return bool
-   *   TRUE if the user is blocked by the other participant, FALSE otherwise.
-   */
-  public function isUserBlockedByOther(UserInterface $user): bool;
 }

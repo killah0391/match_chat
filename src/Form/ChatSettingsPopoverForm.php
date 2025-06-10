@@ -3,58 +3,39 @@
 namespace Drupal\match_chat\Form;
 
 use Drupal\Core\Form\FormBase;
-use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\AppendCommand;
 use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Ajax\AnnounceCommand;
-use Drupal\Core\Ajax\AppendCommand;
-use Drupal\Core\Ajax\HtmlCommand; // To clear previous messages from the target container
+use Drupal\Core\Ajax\InvokeCommand;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\match_chat\Entity\MatchThreadInterface;
+use Drupal\match_toasts\Ajax\ShowBootstrapToastsCommand;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\Core\Ajax\HtmlCommand;
 
 /**
- * Provides a form for chat settings (file uploads) within a popover.
+ * Provides a form for chat settings (blocking, file uploads) within a popover.
  */
 class ChatSettingsPopoverForm extends FormBase
 {
 
   protected EntityTypeManagerInterface $entityTypeManager;
-  use StringTranslationTrait;
-
-  /**
-   * The MatchAbuseController.
-   *
-   * @var \Drupal\match_abuse\Controller\MatchAbuseController|null
-   */
-  protected $matchAbuseController;
-
-  /**
-   * The current user.
-   *
-   * @var \Drupal\Core\Session\AccountInterface
-   */
   protected AccountInterface $currentUser;
 
   // Target selector for AJAX messages, consistent with MatchMessageForm if desired.
   // Or a more specific one if popover messages need a different location.
   const AJAX_MESSAGES_CONTAINER_SELECTOR = '.chat-status-messages'; // Or another stable selector
 
- /**
-  * @param \Drupal\match_abuse\Controller\MatchAbuseController|null $match_abuse_controller
-  *   The match abuse controller.
-  */
-  public function __construct(
-    EntityTypeManagerInterface $entity_type_manager,
-    AccountInterface $current_user,
-    ?\Drupal\match_abuse\Controller\MatchAbuseController $match_abuse_controller
-  )
+  /**
+   * Constructs a new ChatSettingsPopoverForm.
+   */
+  public function __construct(EntityTypeManagerInterface $entity_type_manager, AccountInterface $current_user)
   {
     $this->entityTypeManager = $entity_type_manager;
     $this->currentUser = $current_user;
-    $this->matchAbuseController = $match_abuse_controller;
   }
 
   /**
@@ -64,8 +45,7 @@ class ChatSettingsPopoverForm extends FormBase
   {
     return new static(
       $container->get('entity_type.manager'),
-      $container->get('current_user'),
-      $container->get('class_resolver')->getInstanceFromDefinition(\Drupal\match_abuse\Controller\MatchAbuseController::class)
+      $container->get('current_user')
     );
   }
 
@@ -113,51 +93,6 @@ class ChatSettingsPopoverForm extends FormBase
     $form['main_message_form_wrapper_id'] = ['#type' => 'hidden', '#value' => 'match-message-form-wrapper-' . $thread->id()];
     $form['this_popover_form_wrapper_id'] = ['#type' => 'hidden', '#value' => $form_internal_wrapper_id];
 
-    // The thread ID (UUID) will be passed as a query parameter to the AJAX block/unblock URLs.
-    // This allows the MatchAbuseController to know which MatchMessageForm to refresh.
-    $chat_thread_id_for_query_param = $thread->id(); // This is the UUID.
-
-    // Determine the other user in the chat.
-    $other_user_in_chat = NULL;
-    if ($user1->id() === $current_user_obj->id()) {
-      $other_user_in_chat = $user2;
-    }
-    elseif ($user2->id() === $current_user_obj->id()) {
-      $other_user_in_chat = $user1;
-    }
-
-    // Add Block/Unblock link if applicable.
-    if ($other_user_in_chat &&
-        $this->currentUser->id() != $other_user_in_chat->id() &&
-        $this->currentUser->hasPermission('block users') &&
-        $this->matchAbuseController
-    ) {
-        // Define the specific options for the chat popover context.
-        // These ensure the link triggers the modal and is styled for the popover.
-        $chat_popover_link_options = [
-            'wrapper_classes' => ['mt-3', 'mb-n4', 'mx-n4', 'js-form-wrapper', 'form-wrapper', 'mb-3'],
-            // 'match-abuse-confirm-trigger' is added by MatchAbuseController by default now.
-            // 'use-ajax' is omitted as modal handles the action.
-            'link_classes_base' => ['js-match-abuse-confirm-action', 'match-abuse-link', 'btn', 'd-block', 'w-100', 'rounded-top-0'],
-            'link_classes_block_state' => ['btn-danger', 'text-muted'],
-            'link_classes_unblock_state' => ['btn-success', 'text-muted'],
-            // Icon will use the default from MatchAbuseController::getBlockLinkRenderArray.
-        ];
-
-        $form['block_user_action_wrapper'] = $this->matchAbuseController->getBlockLinkRenderArray(
-            $other_user_in_chat,
-            $chat_thread_id_for_query_param,
-            $chat_popover_link_options // Pass the specific options for chat popover
-        );
-        // The key 'block_user_action_wrapper' must match the one used in
-        // MatchAbuseController for AJAX replacement to work correctly.
-        $form['block_user_action_wrapper']['#weight'] = 100; // High weight to push to the bottom
-
-      // Attach libraries required for AJAX link and toast notifications.
-      $form['#attached']['library'][] = 'core/drupal.ajax';
-      $form['#attached']['library'][] = 'match_abuse/match-abuse-script';
-    }
-
     $current_user_allows_uploads = ($user1->id() === $current_user_obj->id()) ? $thread->getUser1AllowsUploads() : $thread->getUser2AllowsUploads();
     $form['allow_uploads'] = [
       '#type' => 'checkbox',
@@ -172,6 +107,38 @@ class ChatSettingsPopoverForm extends FormBase
       '#weight' => 20,
     ];
 
+    // --- Block/Unblock User Button ---
+    $other_user_for_block = ($user1->id() === $current_user_obj->id()) ? $user2 : $user1;
+    $current_user_has_blocked_other_user = FALSE; // True if current user has blocked $other_user_for_block
+    if ($this->currentUser->hasPermission('block users')) {
+        $block_storage = $this->entityTypeManager->getStorage('match_abuse_block');
+        $existing_block_ids = $block_storage->getQuery()
+            ->condition('blocker_uid', $this->currentUser->id())
+            ->condition('blocked_uid', $other_user_for_block->id())
+            ->accessCheck(FALSE) // Check existence, not entity access for viewing the block itself.
+            ->execute();
+        $current_user_has_blocked_other_user = !empty($existing_block_ids);
+    }
+
+    // "Allow uploads" checkbox should be hidden if the current user is the one blocking.
+    $form['allow_uploads']['#access'] = !$current_user_has_blocked_other_user;
+
+    $block_button_text = $current_user_has_blocked_other_user ?
+      $this->t('Unblock @username', ['@username' => $other_user_for_block->getAccountName()]) :
+      $this->t('Block @username', ['@username' => $other_user_for_block->getAccountName()]);
+
+    $form['block_user_toggle'] = [
+      '#type' => 'button',
+      '#value' => $block_button_text,
+      '#ajax' => [
+        'callback' => '::ajaxBlockToggleCallback',
+        'wrapper' => $form_internal_wrapper_id, // Replaces this form
+        'progress' => ['type' => 'throbber', 'message' => NULL],
+      ],
+      '#weight' => 100,
+      '#attributes' => ['class' => ['btn', $current_user_has_blocked_other_user ? 'btn-warning' : 'btn-danger', 'btn-sm', 'mt-2', 'w-100']],
+      '#access' => $this->currentUser->hasPermission('block users'),
+    ];
     return $form;
   }
 
@@ -271,6 +238,135 @@ class ChatSettingsPopoverForm extends FormBase
         \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Exception getting MatchMessageForm for thread @tid: @msg.', ['@tid' => $thread->id(), '@msg' => $e->getMessage()]);
       }
     }
+    return $response;
+  }
+
+  /**
+   * AJAX callback for the Block/Unblock User button.
+   */
+  public function ajaxBlockToggleCallback(array &$form, FormStateInterface $form_state): AjaxResponse {
+    $response = new AjaxResponse();
+    $thread_id = $form_state->getValue('thread_id');
+    /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+    $thread = $thread_id ? $this->entityTypeManager->getStorage('match_thread')->load($thread_id) : NULL;
+
+    if (!$thread) {
+      $this->messenger()->addError($this->t('Chat thread not found.'));
+      $this->addDrupalAjaxMessages($response, static::AJAX_MESSAGES_CONTAINER_SELECTOR);
+      return $response;
+    }
+
+    $user1 = $thread->getUser1();
+    $user2 = $thread->getUser2();
+    $current_user_id = $this->currentUser->id();
+
+    if (!$user1 || !$user2) {
+      $this->messenger()->addError($this->t('Chat participants not found.'));
+      $this->addDrupalAjaxMessages($response, static::AJAX_MESSAGES_CONTAINER_SELECTOR);
+      return $response;
+    }
+
+    $other_user = ($user1->id() === $current_user_id) ? $user2 : $user1;
+
+    if (!$this->currentUser->hasPermission('block users')) {
+      $this->messenger()->addError($this->t('You do not have permission to block users.'));
+      $this->addDrupalAjaxMessages($response, static::AJAX_MESSAGES_CONTAINER_SELECTOR);
+      return $response;
+    }
+
+    $block_storage = $this->entityTypeManager->getStorage('match_abuse_block');
+    $existing_block_ids = $block_storage->getQuery()
+        ->condition('blocker_uid', $current_user_id)
+        ->condition('blocked_uid', $other_user->id())
+        ->accessCheck(FALSE) // Check existence, not entity access for viewing the block itself.
+        ->execute();
+
+    $toast_message = '';
+    $toast_title = '';
+    $toast_type = 'status';
+
+    if (!empty($existing_block_ids)) { // User is currently blocked, so unblock
+      $entities_to_delete = $block_storage->loadMultiple($existing_block_ids);
+      $block_storage->delete($entities_to_delete);
+      $toast_message = $this->t('You have unblocked @username.', ['@username' => $other_user->getAccountName()]);
+      $toast_title = $this->t('User Unblocked');
+      $toast_type = 'status';
+    }
+    else { // User is not blocked, so block
+      $block = $block_storage->create([
+        'blocker_uid' => $current_user_id,
+        'blocked_uid' => $other_user->id(),
+      ]);
+      $block->save();
+      $toast_message = $this->t('You have blocked @username.', ['@username' => $other_user->getAccountName()]);
+      $toast_title = $this->t('User Blocked');
+      $toast_type = 'info';
+    }
+
+    $response->addCommand(new ShowBootstrapToastsCommand($toast_message, $toast_title, $toast_type));
+
+    // Check if the current user is NOW blocked by the other user
+    $current_user_is_blocked_by_other = FALSE;
+    $block_storage_check = $this->entityTypeManager->getStorage('match_abuse_block');
+    $blocks_by_other_check = $block_storage_check->getQuery()
+        ->condition('blocker_uid', $other_user->id())
+        ->condition('blocked_uid', $current_user_id)
+        ->accessCheck(FALSE)
+        ->execute();
+    if (!empty($blocks_by_other_check)) {
+        $current_user_is_blocked_by_other = TRUE;
+    }
+
+    // New: Check if the current user is NOW the blocker
+    $current_user_is_now_the_blocker = FALSE;
+    $blocks_by_current_user_check = $block_storage_check->getQuery()
+        ->condition('blocker_uid', $current_user_id)
+        ->condition('blocked_uid', $other_user->id())
+        ->accessCheck(FALSE)
+        ->execute();
+    if (!empty($blocks_by_current_user_check)) {
+        $current_user_is_now_the_blocker = TRUE;
+    }
+
+    if ($current_user_is_blocked_by_other) {
+        // Current user is blocked by the other user.
+        // Replace chat form container with warning, hide popover trigger and content.
+        $warning_message_text = $this->t('@username has blocked you. You cannot send messages or change chat settings.', ['@username' => $other_user->getAccountName()]);
+        $warning_html = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
+
+        $response->addCommand(new ReplaceCommand('.chat-form-container', $warning_html));
+        $response->addCommand(new InvokeCommand('#chat-settings-popover-trigger-' . $thread_id, 'hide'));
+        // Also ensure the popover itself is hidden if it was open
+        $response->addCommand(new InvokeCommand('#chat-settings-popover-trigger-' . $thread_id, 'popover', ['hide']));
+        $response->addCommand(new HtmlCommand('#chat-settings-popover-content-container-' . $thread_id, '')); // Clear its content
+    } else {
+        // Current user is NOT blocked by the other.
+        // Now check if current user is the blocker, or if it's a clear state.
+
+        if ($current_user_is_now_the_blocker) {
+            // Current user is the blocker.
+            // Replace chat form container with "you have blocked them" warning.
+            $warning_message_text = $this->t('You have blocked @username. You cannot send messages until you unblock them.', ['@username' => $other_user->getAccountName()]);
+            $warning_html = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
+            $response->addCommand(new ReplaceCommand('.chat-form-container', $warning_html));
+        } else {
+            // Neither is blocked by the other (or current user just unblocked the other).
+            // Rebuild main message form to ensure it's the actual form, not a warning.
+            if ($thread instanceof MatchThreadInterface && $thread->id()) {
+                $main_message_form_render_array = \Drupal::formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
+                $response->addCommand(new ReplaceCommand('.chat-form-container', $main_message_form_render_array));
+            }
+        }
+
+        // In either case (current user is blocker OR chat is clear), rebuild the popover form.
+        // This will update button text and hide/show "allow_uploads" based on new state.
+        $this_popover_form_wrapper_id = $form_state->getValue('this_popover_form_wrapper_id', $form['#ajax']['wrapper'] ?? '');
+        $rebuilt_popover_form = \Drupal::formBuilder()->rebuildForm($this->getFormId(), $form_state, $form);
+        if (!empty($this_popover_form_wrapper_id)) {
+            $response->addCommand(new ReplaceCommand('#' . $this_popover_form_wrapper_id, $rebuilt_popover_form));
+        }
+    }
+
     return $response;
   }
 

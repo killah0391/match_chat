@@ -28,8 +28,6 @@ function match_chat_theme()
         'chat_settings_popover_form' => NULL,
         'current_user_entity' => NULL,
         'other_user_entity' => NULL,
-        'has_current_user_blocked_other' => FALSE,
-        'is_current_user_blocked_by_other' => FALSE,
       ],
       'template' => 'match-thread',
     ],
@@ -176,45 +174,6 @@ function match_chat_match_message_presave(EntityInterface $entity)
             $file_usage->delete($file_to_remove, 'match_chat', 'match_message', $message->id());
           }
         }
-      }
-    }
-  }
-  $thread_id = $message->getThreadId();
-  if (!$thread_id) {
-    // Should not happen if form validation is correct
-    return;
-  }
-
-  /** @var \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager */
-  $entity_type_manager = \Drupal::service('entity_type.manager');
-  /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
-  $thread = $entity_type_manager->getStorage('match_thread')->load($thread_id);
-
-  /** @var \Drupal\user\UserInterface $sender */
-  $sender = $message->getOwner();
-
-  if ($thread && $sender) {
-    // Determine the other user in the thread
-    $user1 = $thread->getUser1();
-    $user2 = $thread->getUser2();
-    $other_user = NULL;
-
-    if ($user1 && $user1->id() == $sender->id()) {
-      $other_user = $user2;
-    } elseif ($user2 && $user2->id() == $sender->id()) {
-      $other_user = $user1;
-    }
-
-    if ($other_user) {
-      // Check if sender has blocked the other user
-      if ($thread->hasUserBlockedOther($sender)) {
-        // Prevent saving the message
-        throw new \LogicException(t('Cannot save message: Sender has blocked the recipient in this thread.'));
-      }
-      // Check if sender is blocked by the other user
-      if ($thread->isUserBlockedByOther($sender)) {
-        // Prevent saving the message
-        throw new \LogicException(t('Cannot save message: Sender is blocked by the recipient in this thread.'));
       }
     }
   }

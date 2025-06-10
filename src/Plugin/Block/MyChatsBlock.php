@@ -201,7 +201,7 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
             if (!empty($last_message->getChatImages())) {
               $image_count = count($last_message->getChatImages());
               $image_text = $this->formatPlural($image_count, '1 image', '@count images');
-              if (!empty(trim($message_content))) {
+              if (!empty(trim($message_content ?? ''))) {
                 $message_content .= " (" . $image_text . ")";
               } else {
                 $message_content = $image_text;
@@ -236,7 +236,7 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
         $threads_data[] = [
           'thread_uuid' => $thread->uuid(),
           'other_user_name' => $other_user->getDisplayName(),
-          'other_user_picture' => $other_user->hasField('user_picture') && !$other_user->get('user_picture')->isEmpty() ? $this->entityTypeManager->getViewBuilder('user')->view($other_user, 'compact') : NULL,
+          'other_user_picture' => $other_user->hasField('user_picture') && !$other_user->get('user_picture')->isEmpty() ? $other_user->get('user_picture')->view(['label' => 'hidden', 'type' => 'image', 'settings' => ['image_style' => 'thumbnail', 'image_link' => '']]) : NULL,
           'last_message_text' => $last_message_text,
           'last_message_date' => $last_message_date,
           'last_message_sender_name' => $last_message_sender_name,
@@ -249,7 +249,7 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
     return [
       '#theme' => 'match_threads_list',
       '#threads' => $threads_data,
-      '#empty_message' => $this->t('No other active chats.'), // Message updated for context
+      '#empty_message' => $this->t('No active chats.'), // Message updated for context
       '#attached' => [
         'library' => [
           'match_chat/match_chat_styles',

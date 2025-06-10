@@ -1,88 +1,78 @@
-{# In killah0391/match_chat/match_chat-2d6d966e17dc101ae0d3f19f7c3b09cc24b094c7/templates/match-threads-list.html.twig #}
-
+{#
+/**
+ * @file
+ * Default theme implementation for a list of match threads.
+ *
+ * Available variables:
+ * - threads: An array of thread objects. Each object contains:
+ * - thread_url: URL to the chat thread.
+ * - other_user_picture: Render array for the other user's profile picture.
+ * - other_user_name: The display name of the other user.
+ * - last_message_date: Formatted date of the last message.
+ * - last_message_sender_name: The sender of the last message ('You' or user's name).
+ * - last_message_text: The content of the last message.
+ * - unread_count: The number of unread messages for the current user.
+ * - empty_message: A message to display if the threads array is empty.
+ *
+ * @see \Drupal\match_chat\Plugin\Block\MyChatsBlock::build()
+ */
+#}
 {% if threads %}
-	<ul
-		class="match-threads-list list-group">
-		{# Added list-group for Bootstrap styling #}
+	<div class="list-group match-threads-list">
 		{% for thread in threads %}
-			<li
-				class="match-thread-item list-group-item">
-				{# Added list-group-item #}
-				<a href="{{ thread.thread_url }}" class="match-thread-link d-flex justify-content-between align-items-center">
-					<div class="match-thread-item__main-content">
-						<div class="match-thread-item__user-info">
-							{% if thread.other_user_picture %}
-								<div
-									class="match-thread-item__user-picture me-2">
-									{# Bootstrap margin class #}
-									{{ thread.other_user_picture }}
-								</div>
-							{% endif %}
-							<span class="match-thread-item__username fw-bold">{{ thread.other_user_name }}</span>
-							{# Bootstrap font weight #}
+			{#
+			        - list-group-item-action makes the whole item clickable.
+			        - d-flex and related classes create the flexible layout.
+			        - p-3 provides padding.
+			        - The `font-weight-bold` on the anchor tag is a custom class you can add for unread threads.
+			      #}
+			<a href="{{ thread.thread_url }}" class="list-group-item list-group-item-action p-3 {% if thread.unread_count > 0 %}font-weight-bold{% endif %}" aria-current="true">
+				<div
+					class="d-flex align-items-center">
+
+					{# User Picture: flex-shrink-0 prevents the image from shrinking. #}
+					{% if thread.other_user_picture %}
+						<div class="flex-shrink-0 me-3">
+							{{ thread.other_user_picture }}
+						</div>
+					{% endif %}
+
+					{# Main content: Name, Message Preview, and Date #}
+					<div class="flex-grow-1">
+						<div class="d-flex justify-content-between align-items-start">
+							<h6 class="mb-1 text-truncate">{{ thread.other_user_name }}</h6>
+							<small class="text-nowrap text-muted ms-2">{{ thread.last_message_date }}</small>
 						</div>
 						<div
-							class="match-thread-item__last-message small text-muted">
-							{# Bootstrap text styling #}
-							<span class="last-message-sender">{{ thread.last_message_sender_name }}:
-							</span>
-							<span class="last-message-text">{{ thread.last_message_text|striptags|length > 70 ? thread.last_message_text|striptags|slice(0, 70) ~ '...' : thread.last_message_text|striptags }}</span>
+							class="d-flex justify-content-between align-items-end">
+							{#
+							                  - Truncate the last message to keep the layout clean.
+							                  - The `slice` filter is used to limit the text length.
+							                #}
+							<p class="mb-0 text-muted small text-truncate">
+								{% if thread.last_message_sender_name == 'You' %}
+									<strong>{{ thread.last_message_sender_name }}:</strong>
+								{% endif %}
+								{{ thread.last_message_text|slice(0, 60) }}
+								{% if thread.last_message_text|length > 60 %}...
+								{% endif %}
+							</p>
+
+							{# Unread count badge: Only shown if there are unread messages. #}
+							{% if thread.unread_count > 0 %}
+								<span class="badge bg-primary rounded-pill ms-2">{{ thread.unread_count }}</span>
+							{% endif %}
 						</div>
 					</div>
-					<div class="match-thread-item__meta text-end">
-						{% if thread.unread_count > 0 %}
-							<span class="badge bg-primary rounded-pill">{{ thread.unread_count }}</span>
-						{% endif %}
-						<div class="match-thread-item__message-date small text-muted mt-1">
-							{{ thread.last_message_date }}
-						</div>
-					</div>
-				</a>
-			</li>
+
+				</div>
+			</a>
 		{% endfor %}
-	</ul>
+	</div>
 {% else %}
-	<p class="alert alert-info">{{ empty_message }}</p>
-	{# Bootstrap alert #}
+	{# Display a message when there are no chats. #}
+	<div class="alert alert-secondary text-center" role="alert">
+		{{ empty_message }}
+	</div>
 {% endif %}
 
-{#
-  Adjust CSS in match_chat.css as needed.
-  The Bootstrap classes like list-group, list-group-item, d-flex, etc., will provide initial styling.
-  You might want to fine-tune.
-
-  Example additions/modifications to match_chat.css:
-
-  .match-threads-list {
-    // list-style: none; // Handled by list-group
-    // padding: 0; // Handled by list-group
-  }
-  .match-thread-item.list-group-item { // Be more specific
-    // border-bottom: 1px solid #eee; // Handled by list-group-item
-    // margin-bottom: 10px; // list-group adds its own spacing
-    // padding-bottom: 10px;
-  }
-  .match-thread-link {
-    display: flex; // already set via d-flex
-    text-decoration: none;
-    color: inherit;
-    // padding: 10px; // list-group-item handles padding
-    // border-radius: 4px; // list-group-item handles rounding if on list-group
-  }
-  .match-thread-link:hover {
-    // background-color: #f9f9f9; // list-group-item-action if <a> is the list-group-item
-  }
-  .match-thread-item__user-info {
-    // display: flex; // If not using d-flex on parent
-    // align-items: center;
-    // margin-bottom: 5px;
-  }
-  .match-thread-item__user-picture img {
-    max-width: 40px;
-    max-height: 40px;
-    border-radius: 50%;
-  }
-  .match-thread-item__meta {
-    min-width: 50px; /* Give some space for badge and date */
-  }
-#}

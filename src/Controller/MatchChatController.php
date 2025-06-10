@@ -199,6 +199,8 @@ class MatchChatController extends ControllerBase
   {
     $thread_storage = $this->entityTypeManager->getStorage('match_thread');
     $threads = $thread_storage->loadByProperties(['uuid' => $match_thread_uuid]);
+    $message_form = NULL;
+    $chat_settings_popover_form = NULL;
 
     if (empty($threads)) {
       throw new NotFoundHttpException();
@@ -250,13 +252,52 @@ class MatchChatController extends ControllerBase
     /** @var \Drupal\user\UserInterface $other_user_entity */
     $other_user_entity = ($user1_id == $current_user_id) ? $user2 : $user1;
 
+    $is_current_user_blocked_by_other = FALSE;
+    $current_user_has_blocked_other = FALSE;
+    $block_message_for_form_container = '';
+
+    $block_storage = $this->entityTypeManager->getStorage('match_abuse_block');
+    // Check if the other user has blocked the current user.
+    $blocks_by_other = $block_storage->getQuery()
+        ->condition('blocker_uid', $other_user_entity->id())
+        ->condition('blocked_uid', $current_user_entity->id())
+        ->accessCheck(FALSE) // Check existence, not entity access for viewing the block itself.
+        ->execute();
+    if (!empty($blocks_by_other)) {
+        $is_current_user_blocked_by_other = TRUE;
+        $warning_message_text = $this->t('@username has blocked you. You cannot send messages or change chat settings.', ['@username' => $other_user_entity->getAccountName()]);
+        // This markup will be used if the user is blocked.
+        $block_message_for_form_container = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
+    }
+    else {
+        // Only check if current user is blocker if they are NOT blocked by other.
+        $blocks_by_current_user = $block_storage->getQuery()
+            ->condition('blocker_uid', $current_user_entity->id())
+            ->condition('blocked_uid', $other_user_entity->id())
+            ->accessCheck(FALSE)
+            ->execute();
+        if (!empty($blocks_by_current_user)) {
+            $current_user_has_blocked_other = TRUE;
+            $warning_message_text = $this->t('You have blocked @username. You cannot send messages until you unblock them.', ['@username' => $other_user_entity->getAccountName()]);
+            $block_message_for_form_container = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
+        }
+    }
+
     $messages_render_array = $this->renderMessages($thread, $current_user_entity);
 
     // Main message input form
-    $message_form = $this->formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
+    if ($is_current_user_blocked_by_other || $current_user_has_blocked_other) {
+        $message_form_render_array = ['#markup' => $block_message_for_form_container];
+    } else {
+        $message_form_render_array = $this->formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
+    }
 
     // Chat Settings Popover Form (includes block user and allow uploads)
-    $chat_settings_popover_form = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $thread);
+    if ($is_current_user_blocked_by_other) { // If current user is blocked by other, hide popover entirely
+        $chat_settings_popover_form_render_array = ['#markup' => '']; // Empty if blocked by other
+    } else { // Otherwise, show it (it will internally handle its own state)
+        $chat_settings_popover_form_render_array = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $thread);
+    }
 
     return [
       '#theme' => 'match_thread',
@@ -264,14 +305,19 @@ class MatchChatController extends ControllerBase
       '#messages_list' => $messages_render_array['messages_list'],
       '#message_form' => $message_form,
       '#chat_settings_popover_form' => $chat_settings_popover_form, // Pass the new form
+      '#message_form' => $message_form_render_array,
+      '#chat_settings_popover_form' => $chat_settings_popover_form_render_array,
       '#current_user_entity' => $current_user_entity,
       '#other_user_entity' => $other_user_entity,
+      '#current_user_has_blocked_other' => $current_user_has_blocked_other,
+      '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
       '#attached' => [
         'library' => [
           'core/drupal.ajax',
           'match_chat/match_chat_styles',
           'match_chat/match_chat_scrolltobottom',
-          'match_chat/match_chat_popover', // Ensure this library is defined for popover JS
+          'match_chat/match_chat_popover',
+          'match_abuse/match-abuse-script', // For Bootstrap Toasts
         ],
         'drupalSettings' => [
           'match_chat' => [
@@ -291,17 +337,13 @@ class MatchChatController extends ControllerBase
    * The thread entity.
    * @param \Drupal\user\UserInterface $current_user_entity
    * The current user entity.
-   * @param bool $has_current_user_blocked_other
-   * Whether the current user has blocked the other participant.
-   * @param bool $is_current_user_blocked_by_other
-   * Whether the current user is blocked by the other participant.
    *
    * @return array
    * A render array containing the messages list.
    */
   public function renderMessages(
     MatchThreadInterface $thread,
-    UserInterface $current_user_entity,
+    UserInterface $current_user_entity
   ) {
     $message_storage = $this->entityTypeManager->getStorage('match_message');
     $query = $message_storage->getQuery()
@@ -338,7 +380,7 @@ class MatchChatController extends ControllerBase
 
     // Update empty message based on block status
     if (empty($messages_for_list_items)) {
-        $actual_list_of_messages['#empty'] = $this->t('No messages yet. Be the first to say hello!');
+      $actual_list_of_messages['#empty'] = $this->t('No messages yet. Be the first to say hello!');
     }
 
 

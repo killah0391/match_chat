@@ -6,8 +6,8 @@
   - chat_settings_popover_form: Render array for the ChatSettingsPopoverForm.
   - current_user_entity: The current User entity.
   - other_user_entity: The User entity of the other participant.
-  - has_current_user_blocked_other: Boolean, true if current user has blocked the other.
-  - is_current_user_blocked_by_other: Boolean, true if current user is blocked by the other.
+  - is_current_user_blocked_by_other: Boolean, TRUE if the current user is blocked by the other participant.
+  - current_user_has_blocked_other: Boolean, TRUE if the current user has blocked the other participant.
 #}
 {% set thread_id = thread.id() %}
 <div class="chat-status-messages"></div>
@@ -23,31 +23,25 @@
 				{{ 'Chat'|t }}
 			{% endif %}
 		</h3>
+    {% if not is_current_user_blocked_by_other %} {# Hide button if current user is blocked by other #}
 		<button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="chat-settings-popover-trigger-{{ thread_id }}" aria-label="{{ 'Chat settings'|t }}" title="{{ 'Chat settings'|t }}">
 			<i class="bi bi-sliders"></i>
 			{# Bootstrap 5 Sliders Icon #}
 		</button>
+    {% endif %}
 	</div>
 
 	{# Container for the Popover's Form Content - Hidden by default #}
 	{# JavaScript will use the content of this div for the popover #}
+  {% if not is_current_user_blocked_by_other %} {# Don't render content if current user is blocked by other #}
 	<div id="chat-settings-popover-content-container-{{ thread_id }}" class="d-none visually-hidden">
 		{{ chat_settings_popover_form }}
 	</div>
+  {% endif %}
 
 	{# Main Content Area: Messages and Form #}
 	<div
 		class="chat-content-area p-3">
-		{# Display overall block status messages #}
-		{% if has_current_user_blocked_other and other_user_entity %}
-			<div class="alert alert-warning small p-2 mb-3" role="alert">
-				{{ 'You have blocked @username. To resume chatting or allow file uploads, please unblock them in the chat settings.'|t({'@username': other_user_entity.displayName.value|default(other_user_entity.label)}) }}
-			</div>
-		{% elseif is_current_user_blocked_by_other and other_user_entity %}
-			<div class="alert alert-info small p-2 mb-3" role="alert">
-				{{ '@username has blocked you. You cannot send messages or share files until they unblock you.'|t({'@username': other_user_entity.displayName.value|default(other_user_entity.label)}) }}
-			</div>
-		{% endif %}
 
 		{# Messages List - contains its own wrapper #match-chat-messages-wrapper #}
 		<div class="chat-messages-scroll-container mb-3 bg-white border rounded p-2" style="max-height: 400px; min-height:200px; overflow-y: auto;">
@@ -56,6 +50,7 @@
 
 		{# Message Input Form #}
 		<div class="chat-form-container border-top pt-3">
+      {# message_form is now either the form or the warning markup from the controller #}
 			{{ message_form }}
 		</div>
 	</div>

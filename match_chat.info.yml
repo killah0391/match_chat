@@ -6,4 +6,5 @@ package: User Match
 
 dependencies:
   - drupal:user
+  - match_abuse:match_abuse
   - user_match:user_match

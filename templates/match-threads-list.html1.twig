@@ -1,0 +1,88 @@
+{# In killah0391/match_chat/match_chat-2d6d966e17dc101ae0d3f19f7c3b09cc24b094c7/templates/match-threads-list.html.twig #}
+
+{% if threads %}
+	<ul
+		class="match-threads-list list-group">
+		{# Added list-group for Bootstrap styling #}
+		{% for thread in threads %}
+			<li
+				class="match-thread-item list-group-item">
+				{# Added list-group-item #}
+				<a href="{{ thread.thread_url }}" class="match-thread-link d-flex justify-content-between align-items-center">
+					<div class="match-thread-item__main-content">
+						<div class="match-thread-item__user-info">
+							{% if thread.other_user_picture %}
+								<div
+									class="match-thread-item__user-picture me-2">
+									{# Bootstrap margin class #}
+									{{ thread.other_user_picture }}
+								</div>
+							{% endif %}
+							<span class="match-thread-item__username fw-bold">{{ thread.other_user_name }}</span>
+							{# Bootstrap font weight #}
+						</div>
+						<div
+							class="match-thread-item__last-message small text-muted">
+							{# Bootstrap text styling #}
+							<span class="last-message-sender">{{ thread.last_message_sender_name }}:
+							</span>
+							<span class="last-message-text">{{ thread.last_message_text|striptags|length > 70 ? thread.last_message_text|striptags|slice(0, 70) ~ '...' : thread.last_message_text|striptags }}</span>
+						</div>
+					</div>
+					<div class="match-thread-item__meta text-end">
+						{% if thread.unread_count > 0 %}
+							<span class="badge bg-primary rounded-pill">{{ thread.unread_count }}</span>
+						{% endif %}
+						<div class="match-thread-item__message-date small text-muted mt-1">
+							{{ thread.last_message_date }}
+						</div>
+					</div>
+				</a>
+			</li>
+		{% endfor %}
+	</ul>
+{% else %}
+	<p class="alert alert-info">{{ empty_message }}</p>
+	{# Bootstrap alert #}
+{% endif %}
+
+{#
+  Adjust CSS in match_chat.css as needed.
+  The Bootstrap classes like list-group, list-group-item, d-flex, etc., will provide initial styling.
+  You might want to fine-tune.
+
+  Example additions/modifications to match_chat.css:
+
+  .match-threads-list {
+    // list-style: none; // Handled by list-group
+    // padding: 0; // Handled by list-group
+  }
+  .match-thread-item.list-group-item { // Be more specific
+    // border-bottom: 1px solid #eee; // Handled by list-group-item
+    // margin-bottom: 10px; // list-group adds its own spacing
+    // padding-bottom: 10px;
+  }
+  .match-thread-link {
+    display: flex; // already set via d-flex
+    text-decoration: none;
+    color: inherit;
+    // padding: 10px; // list-group-item handles padding
+    // border-radius: 4px; // list-group-item handles rounding if on list-group
+  }
+  .match-thread-link:hover {
+    // background-color: #f9f9f9; // list-group-item-action if <a> is the list-group-item
+  }
+  .match-thread-item__user-info {
+    // display: flex; // If not using d-flex on parent
+    // align-items: center;
+    // margin-bottom: 5px;
+  }
+  .match-thread-item__user-picture img {
+    max-width: 40px;
+    max-height: 40px;
+    border-radius: 50%;
+  }
+  .match-thread-item__meta {
+    min-width: 50px; /* Give some space for badge and date */
+  }
+#}
