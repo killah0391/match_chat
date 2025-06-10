@@ -2,14 +2,16 @@
 
 namespace Drupal\match_chat\Plugin\Block;
 
-use Drupal\Core\Block\BlockBase;
-use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
-use Drupal\Core\Session\AccountInterface;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\Url;
-use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\file\Entity\File;
+use Drupal\Core\Block\BlockBase;
+use Drupal\image\Entity\ImageStyle;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Datetime\DateFormatterInterface;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Provides a 'My Chats' block.
@@ -233,10 +235,25 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
           ->condition('created', $last_seen_timestamp, '>');
         $unread_count = (int) $unread_query->count()->execute();
 
+        $thumb_style = ImageStyle::load('thumbnail');
+
+        $picture_url = NULL;
+        if (!$other_user->get('user_picture')->isEmpty() && $other_user->get('user_picture')->entity instanceof File) {
+          $user_picture_file = $other_user->get('user_picture')->entity;
+          $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
+        } else {
+          $config = \Drupal::config('field.field.user.user.user_picture');
+          $default_image = $config->get('settings.default_image');
+          $file = \Drupal::service('entity.repository')
+            ->loadEntityByUuid('file', $default_image['uuid']);
+          $picture_uri = $file;
+          $picture_url = \Drupal::service('file_url_generator')->generateAbsoluteString($picture_uri->getFileUri());
+        }
+
         $threads_data[] = [
           'thread_uuid' => $thread->uuid(),
           'other_user_name' => $other_user->getDisplayName(),
-          'other_user_picture' => $other_user->hasField('user_picture') && !$other_user->get('user_picture')->isEmpty() ? $other_user->get('user_picture')->view(['label' => 'hidden', 'type' => 'image', 'settings' => ['image_style' => 'thumbnail', 'image_link' => '']]) : NULL,
+          'other_user_picture' => $picture_url,
           'last_message_text' => $last_message_text,
           'last_message_date' => $last_message_date,
           'last_message_sender_name' => $last_message_sender_name,
