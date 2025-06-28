@@ -9,13 +9,10 @@
   - is_current_user_blocked_by_other: Boolean, TRUE if the current user is blocked by the other participant.
   - current_user_has_blocked_other: Boolean, TRUE if the current user has blocked the other participant.
 #}
-{% set thread_id = thread.id() %}
-<div class="chat-status-messages"></div>
-<div class="match-chat-thread-wrapper my-3" data-thread-id="{{ thread_id }}">
-	{# Bootstrap spacing example #}
+{% set thread_id = thread.id() %} {# Keep thread_id for internal use #}
+<div class="match-chat-thread-wrapper d-flex flex-column h-100" data-thread-id="{{ thread_id }}">
 	{# Header Section with Title and Popover Trigger #}
-		<div
-		class="chat-with-header d-flex justify-content-between align-items-center p-3 border-bottom bg-light sticky-top"> {# Bootstrap classes #}
+	<div class="chat-with-header flex-shrink-0">
 		<h3 class="mb-0 h5">
 			{% if other_user_entity %}
 				{{ 'Chat with @username'|t({'@username': other_user_entity.displayName.value|default(other_user_entity.label)}) }}
@@ -23,35 +20,30 @@
 				{{ 'Chat'|t }}
 			{% endif %}
 		</h3>
-    {% if not is_current_user_blocked_by_other %} {# Hide button if current user is blocked by other #}
-		<button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="chat-settings-popover-trigger-{{ thread_id }}" aria-label="{{ 'Chat settings'|t }}" title="{{ 'Chat settings'|t }}">
-			<i class="bi bi-sliders"></i>
-			{# Bootstrap 5 Sliders Icon #}
-		</button>
-    {% endif %}
+		{% if not is_current_user_blocked_by_other %} {# Hide button if current user is blocked by other #}
+			<button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="chat-settings-popover-trigger-{{ thread_id }}" aria-label="{{ 'Chat settings'|t }}" title="{{ 'Chat settings'|t }}">
+				<i class="bi bi-sliders"></i>
+			</button>
+		{% endif %}
 	</div>
 
 	{# Container for the Popover's Form Content - Hidden by default #}
-	{# JavaScript will use the content of this div for the popover #}
-  {% if not is_current_user_blocked_by_other %} {# Don't render content if current user is blocked by other #}
-	<div id="chat-settings-popover-content-container-{{ thread_id }}" class="d-none visually-hidden">
-		{{ chat_settings_popover_form }}
+	{% if not is_current_user_blocked_by_other %}
+		<div id="chat-settings-popover-content-container-{{ thread_id }}" class="d-none visually-hidden">
+			{{ chat_settings_popover_form }}
+		</div>
+	{% endif %}
+
+	{# Messages List - this area will scroll #}
+	<div class="chat-messages-scroll-container flex-grow-1">
+		{{ messages_list }}
 	</div>
-  {% endif %}
 
-	{# Main Content Area: Messages and Form #}
-	<div
-		class="chat-content-area p-3">
-
-		{# Messages List - contains its own wrapper #match-chat-messages-wrapper #}
-		<div class="chat-messages-scroll-container mb-3 bg-white border rounded p-2" style="max-height: 400px; min-height:200px; overflow-y: auto;">
-			{{ messages_list }}
-		</div>
-
-		{# Message Input Form #}
-		<div class="chat-form-container border-top pt-3">
-      {# message_form is now either the form or the warning markup from the controller #}
-			{{ message_form }}
-		</div>
+	{# Message Input Form #}
+	<div class="chat-form-container flex-shrink-0">
+		{# A stable container for AJAX messages from the form #}
+		<div class="chat-status-messages"></div>
+		{# message_form is now either the form or the warning markup from the controller #}
+		{{ message_form }}
 	</div>
 </div>

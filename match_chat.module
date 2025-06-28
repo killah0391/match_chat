@@ -46,6 +46,8 @@ function match_chat_theme()
       'variables' => [
         'threads' => [],
         'empty_message' => '',
+        'selected_thread_uuid' => NULL,
+        'selected_thread_content' => [],
       ],
       'template' => 'match-threads-list', // This points to match-threads-list.html.twig
     ],

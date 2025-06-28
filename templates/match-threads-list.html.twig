@@ -1,7 +1,7 @@
 {#
 /**
  * @file
- * Default theme implementation for a list of match threads.
+ * Default theme implementation for the main chat page with a two-column layout.
  *
  * Available variables:
  * - threads: An array of thread objects. Each object contains:
@@ -12,68 +12,77 @@
  * - last_message_sender_name: The sender of the last message ('You' or user's name).
  * - last_message_text: The content of the last message.
  * - unread_count: The number of unread messages for the current user.
- * - empty_message: A message to display if the threads array is empty.
+ * - empty_message: A message to display if there are no threads.
+ * - selected_thread_uuid: The UUID of the currently selected thread.
+ * - selected_thread_content: The render array for the selected thread's conversation view.
  *
- * @see \Drupal\match_chat\Plugin\Block\MyChatsBlock::build()
+ * @see \Drupal\match_chat\Controller\MatchChatController::myThreads()
  */
 #}
-{% if threads %}
-	<div class="list-group match-threads-list">
-		{% for thread in threads %}
-			{#
-			        - list-group-item-action makes the whole item clickable.
-			        - d-flex and related classes create the flexible layout.
-			        - p-3 provides padding.
-			        - The `font-weight-bold` on the anchor tag is a custom class you can add for unread threads.
-			      #}
-			<a href="{{ thread.thread_url }}" class="list-group-item list-group-item-action p-3 {% if thread.unread_count > 0 %}font-weight-bold{% endif %}" aria-current="true">
-				<div
-					class="d-flex align-items-center">
-
-					{# User Picture: flex-shrink-0 prevents the image from shrinking. #}
-					{% if thread.other_user_picture %}
-						<div class="flex-shrink-0 me-3">
-							<img src="{{ thread.other_user_picture }}" style="width:50px;height:50px;" class="rounded-5" />
-						</div>
-					{% endif %}
-
-					{# Main content: Name, Message Preview, and Date #}
-					<div class="flex-grow-1">
-						<div class="d-flex justify-content-between align-items-start">
-							<h6 class="mb-1 text-truncate">{{ thread.other_user_name }}</h6>
-							<small class="text-nowrap text-muted ms-2">{{ thread.last_message_date }}</small>
-						</div>
-						<div
-							class="d-flex justify-content-between align-items-end">
-							{#
-							                  - Truncate the last message to keep the layout clean.
-							                  - The `slice` filter is used to limit the text length.
-							                #}
-							<p class="mb-0 text-muted small text-truncate">
-								{% if thread.last_message_sender_name == 'You' %}
-									<strong>{{ thread.last_message_sender_name }}:</strong>
-									{% else %}
+<div class="match-chat-container mb-3 card">
+	<div class="row g-0">
+		{# Left Column: Thread List #}
+		<div class="col-12 col-md-4 col-lg-3 border-end">
+			<div class="match-threads-list-sidebar">
+			{% if threads %}
+				<div class="list-group list-group-flush match-threads-list">
+					{% for thread in threads %}
+						<a href="{{ path('match_chat.my_threads', {'match_thread_uuid': thread.thread_uuid}) }}"
+						   class="list-group-item list-group-item-action p-3 chat-thread-link {% if thread.unread_count > 0 %}font-weight-bold{% endif %} {% if selected_thread_uuid == thread.thread_uuid %}active{% endif %}"
+						   aria-current="{% if selected_thread_uuid == thread.thread_uuid %}true{% else %}false{% endif %}"
+						   data-thread-uuid="{{ thread.thread_uuid }}">
+							<div class="d-flex align-items-center">
+								{# User Picture: flex-shrink-0 prevents the image from shrinking. #}
+								{% if thread.other_user_picture %}
+									<div class="flex-shrink-0 me-3">
+										<img src="{{ thread.other_user_picture }}" style="width:50px;height:50px;" class="rounded-circle" alt="{{ thread.other_user_name }}'s profile picture"/>
+									</div>
 								{% endif %}
-								{{ thread.last_message_text|slice(0, 60) }}
-								{% if thread.last_message_text|length > 60 %}...
-								{% endif %}
-							</p>
 
-							{# Unread count badge: Only shown if there are unread messages. #}
-							{% if thread.unread_count > 0 %}
-								<span class="badge bg-primary rounded-pill ms-2">{{ thread.unread_count }}</span>
-							{% endif %}
-						</div>
-					</div>
+								{# Main content: Name, Message Preview, and Date #}
+								<div class="flex-grow-1 overflow-hidden">
+									<div class="d-flex justify-content-between align-items-start">
+										<h6 class="mb-1 text-truncate">{{ thread.other_user_name }}</h6>
+										<small class="text-nowrap text-muted ms-2">{{ thread.last_message_date }}</small>
+									</div>
+									<div class="d-flex justify-content-between align-items-end">
+										<p class="mb-0 text-muted small text-truncate">
+											{% if thread.last_message_sender_name == 'You' %}
+												<strong>{{ thread.last_message_sender_name }}:</strong>
+											{% endif %}
+											{{ thread.last_message_text|slice(0, 60) }}
+											{% if thread.last_message_text|length > 60 %}...{% endif %}
+										</p>
 
+										{# Unread count badge: Only shown if there are unread messages. #}
+										{% if thread.unread_count > 0 %}
+											<span class="badge bg-primary rounded-pill ms-2">{{ thread.unread_count }}</span>
+										{% endif %}
+									</div>
+								</div>
+							</div>
+						</a>
+					{% endfor %}
 				</div>
-			</a>
-		{% endfor %}
-	</div>
-{% else %}
-	{# Display a message when there are no chats. #}
-	<div class="alert alert-secondary text-center" role="alert">
-		{{ empty_message }}
-	</div>
-{% endif %}
+			{% else %}
+				<div class="alert alert-secondary text-center m-3" role="alert">
+					{{ empty_message }}
+				</div>
+			{% endif %}
+			</div>
+		</div>
 
+		{# Right Column: Chat Conversation Area #}
+		<div class="col-12 col-md-8 col-lg-9">
+			<div id="chat-conversation-area" class="h-100">
+				{% if selected_thread_content %}
+					{{ selected_thread_content }}
+				{% else %}
+					<div class="d-flex h-100 align-items-center justify-content-center text-muted p-4 text-center">
+						{{ 'Select a chat from the left to view the conversation.'|t }}
+					</div>
+				{% endif %}
+			</div>
+		</div>
+	</div>
+</div>

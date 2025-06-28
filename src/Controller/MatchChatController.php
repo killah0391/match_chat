@@ -15,9 +15,13 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Drupal\match_chat\Entity\MatchThreadInterface;
 use Drupal\user_match\Service\UserMatchService; // Assuming this service is still relevant
 use Drupal\match_chat\Form\ChatSettingsPopoverForm; // Import the new form class
+use Drupal\Core\Ajax\AjaxResponse;
 use League\Container\Exception\NotFoundException;
+use Drupal\notifier\NotifierService;
 use Drupal\Core\Datetime\DateFormatterInterface; // Add this
 use Drupal\Core\Render\RendererInterface;
+use Drupal\image\Entity\ImageStyle;
+use Drupal\file\Entity\File;
 
 /**
  * Controller for Match Chat.
@@ -54,6 +58,13 @@ class MatchChatController extends ControllerBase
   protected $uuidGenerator;
 
   /**
+   * The notifier service.
+   *
+   * @var \Drupal\notifier\NotifierService
+   */
+  protected $notifierService;
+
+  /**
    * The date formatter service.
    *
    * @var \Drupal\Core\Datetime\DateFormatterInterface
@@ -78,21 +89,25 @@ class MatchChatController extends ControllerBase
    * The UUID generator.
    * @param \Drupal\user_match\Service\UserMatchService $user_match_service
    * The user match service.
+   * @param \Drupal\notifier\NotifierService $notifier_service
+   *   The notifier service.
    */
   public function __construct(
     EntityTypeManagerInterface $entity_type_manager,
     AccountInterface $current_user,
     UuidInterface $uuid_generator,
     UserMatchService $user_match_service,
-    DateFormatterInterface $date_formatter, // Add this
-    RendererInterface $renderer
+    DateFormatterInterface $date_formatter,
+    RendererInterface $renderer,
+    NotifierService $notifier_service
   ) {
     $this->entityTypeManager = $entity_type_manager;
     $this->currentUser = $current_user;
     $this->uuidGenerator = $uuid_generator;
     $this->userMatchService = $user_match_service;
-    $this->dateFormatter = $date_formatter; // Add this
+    $this->dateFormatter = $date_formatter;
     $this->renderer = $renderer;
+    $this->notifierService = $notifier_service;
   }
 
   /**
@@ -105,8 +120,9 @@ class MatchChatController extends ControllerBase
       $container->get('current_user'),
       $container->get('uuid'),
       $container->get('user_match.service'),
-      $container->get('date.formatter'), // Add this
-      $container->get('renderer')
+      $container->get('date.formatter'),
+      $container->get('renderer'),
+      $container->get('notifier.service')
     );
   }
 
@@ -176,6 +192,10 @@ class MatchChatController extends ControllerBase
         'user2' => $targetUser->id(),
       ]);
       $thread->save();
+
+      // Add a notification for the receiver about the new chat thread.
+      $message_for_target = $this->t('@username started a new chat with you.', ['@username' => $currentUserAccount->getDisplayName()]);
+      $this->notifierService->addNotification($message_for_target->render(), 'status', $targetUser->id());
     }
 
     if (!$thread || !$thread->uuid()) {
@@ -303,8 +323,6 @@ class MatchChatController extends ControllerBase
       '#theme' => 'match_thread',
       '#thread' => $thread,
       '#messages_list' => $messages_render_array['messages_list'],
-      '#message_form' => $message_form,
-      '#chat_settings_popover_form' => $chat_settings_popover_form, // Pass the new form
       '#message_form' => $message_form_render_array,
       '#chat_settings_popover_form' => $chat_settings_popover_form_render_array,
       '#current_user_entity' => $current_user_entity,
@@ -431,7 +449,7 @@ class MatchChatController extends ControllerBase
    * @return array
    * A render array for the "My Chats" page.
    */
-  public function myThreads()
+  public function myThreads($match_thread_uuid = NULL)
   {
     $current_user_id = $this->currentUser->id();
     $thread_storage = $this->entityTypeManager->getStorage('match_thread');
@@ -451,6 +469,20 @@ class MatchChatController extends ControllerBase
     $query->condition($group);
 
     $thread_ids = $query->execute();
+
+    $selected_thread = NULL;
+    $selected_thread_render_array = [];
+
+    // If a specific thread UUID is provided, try to load it.
+    if ($match_thread_uuid) {
+      $selected_threads_by_uuid = $thread_storage->loadByProperties(['uuid' => $match_thread_uuid]);
+      if (!empty($selected_threads_by_uuid)) {
+        $selected_thread = reset($selected_threads_by_uuid);
+      }
+    } elseif (!empty($thread_ids)) {
+      // If no UUID provided, select the most recent thread.
+      $selected_thread = $thread_storage->load(reset($thread_ids));
+    }
 
     if (!empty($thread_ids)) {
       $threads = $thread_storage->loadMultiple($thread_ids);
@@ -505,7 +537,7 @@ class MatchChatController extends ControllerBase
         }
 
 
-        // Calculate unread messages
+        // Calculate unread messages.
         $unread_count = 0;
         $last_seen_timestamp = 0;
 
@@ -525,10 +557,28 @@ class MatchChatController extends ControllerBase
           ->condition('created', $last_seen_timestamp, '>'); // Messages newer than last seen
         $unread_count = (int) $unread_query->count()->execute();
 
+        // Get user picture URL.
+        $thumb_style = ImageStyle::load('thumbnail');
+        $picture_url = NULL;
+        if (!$other_user->get('user_picture')->isEmpty() && $other_user->get('user_picture')->entity instanceof File) {
+          $user_picture_file = $other_user->get('user_picture')->entity;
+          $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
+        }
+        else {
+          $config = \Drupal::config('field.field.user.user.user_picture');
+          $default_image = $config->get('settings.default_image');
+          if (!empty($default_image['uuid'])) {
+            $file = $this->entityTypeManager->getStorage('file')->loadByProperties(['uuid' => $default_image['uuid']]);
+            if ($file = reset($file)) {
+              $picture_url = $thumb_style ? $thumb_style->buildUrl($file->getFileUri()) : $file->createFileUrl(FALSE);
+            }
+          }
+        }
+
         $threads_data[] = [
           'thread_uuid' => $thread->uuid(),
           'other_user_name' => $other_user->getDisplayName(),
-          'other_user_picture' => $other_user->hasField('user_picture') && !$other_user->get('user_picture')->isEmpty() ? $this->entityTypeManager->getViewBuilder('user')->view($other_user, 'compact') : NULL,
+          'other_user_picture' => $picture_url,
           'last_message_text' => $last_message_text,
           'last_message_date' => $last_message_date,
           'last_message_sender_name' => $last_message_sender_name,
@@ -538,10 +588,86 @@ class MatchChatController extends ControllerBase
       }
     }
 
+    // Prepare the selected thread's content if a thread is selected.
+    if ($selected_thread) {
+      $current_user_entity = ($selected_thread->getUser1()->id() == $current_user_id) ? $selected_thread->getUser1() : $selected_thread->getUser2();
+      $other_user_entity = ($selected_thread->getUser1()->id() == $current_user_id) ? $selected_thread->getUser2() : $selected_thread->getUser1();
+
+      $is_current_user_blocked_by_other = FALSE;
+      $current_user_has_blocked_other = FALSE;
+      $block_message_for_form_container = '';
+
+      $block_storage = $this->entityTypeManager->getStorage('match_abuse_block');
+      $blocks_by_other = $block_storage->getQuery()
+        ->condition('blocker_uid', $other_user_entity->id())
+        ->condition('blocked_uid', $current_user_entity->id())
+        ->accessCheck(FALSE)
+        ->execute();
+      if (!empty($blocks_by_other)) {
+        $is_current_user_blocked_by_other = TRUE;
+        $warning_message_text = $this->t('@username has blocked you. You cannot send messages or change chat settings.', ['@username' => $other_user_entity->getAccountName()]);
+        $block_message_for_form_container = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
+      } else {
+        $blocks_by_current_user = $block_storage->getQuery()
+          ->condition('blocker_uid', $current_user_entity->id())
+          ->condition('blocked_uid', $other_user_entity->id())
+          ->accessCheck(FALSE)
+          ->execute();
+        if (!empty($blocks_by_current_user)) {
+          $current_user_has_blocked_other = TRUE;
+          $warning_message_text = $this->t('You have blocked @username. You cannot send messages until you unblock them.', ['@username' => $other_user_entity->getAccountName()]);
+          $block_message_for_form_container = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
+        }
+      }
+
+      $messages_render_array = $this->renderMessages($selected_thread, $current_user_entity);
+
+      if ($is_current_user_blocked_by_other || $current_user_has_blocked_other) {
+        $message_form_render_array = ['#markup' => $block_message_for_form_container];
+      } else {
+        $message_form_render_array = $this->formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $selected_thread);
+      }
+
+      if ($is_current_user_blocked_by_other) {
+        $chat_settings_popover_form_render_array = ['#markup' => ''];
+      } else {
+        $chat_settings_popover_form_render_array = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $selected_thread);
+      }
+
+      $selected_thread_render_array = [
+        '#theme' => 'match_thread',
+        '#thread' => $selected_thread,
+        '#messages_list' => $messages_render_array['messages_list'],
+        '#message_form' => $message_form_render_array,
+        '#chat_settings_popover_form' => $chat_settings_popover_form_render_array,
+        '#current_user_entity' => $current_user_entity,
+        '#other_user_entity' => $other_user_entity,
+        '#current_user_has_blocked_other' => $current_user_has_blocked_other,
+        '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
+        '#attached' => [
+          'library' => [
+            'core/drupal.ajax',
+            'match_chat/match_chat_scrolltobottom',
+            'match_chat/match_chat_popover',
+            'match_abuse/match-abuse-script',
+          ],
+          'drupalSettings' => [
+            'match_chat' => [
+              'thread_id' => $selected_thread->id(),
+              'popover_form_internal_wrapper_id_tpl' => 'chat-settings-popover-form-wrapper-',
+            ],
+          ],
+        ],
+      ];
+    }
+
     $build['#theme'] = 'match_threads_list';
     $build['#threads'] = $threads_data;
     $build['#empty_message'] = $this->t('You have no active chats yet.');
-    $build['#attached']['library'][] = 'match_chat/match_chat_styles';
+    $build['#selected_thread_uuid'] = $selected_thread ? $selected_thread->uuid() : NULL;
+    $build['#selected_thread_content'] = $selected_thread_render_array;
+    $build['#attached']['library'][] = 'match_chat/match_chat_styles'; // Styles for the entire component.
+    $build['#attached']['library'][] = 'match_chat/match_chat_scrolltobottom'; // JS for AJAX thread loading and scrolling.
 
     $build['#cache'] = [
       'contexts' => ['user'], // The list depends on the current user
@@ -549,5 +675,52 @@ class MatchChatController extends ControllerBase
     ];
 
     return $build;
+  }
+
+  /**
+   * AJAX callback to load a chat thread's content.
+   *
+   * @param string $match_thread_uuid
+   *   The UUID of the Match Thread to load.
+   *
+   * @return \Drupal\Core\Ajax\AjaxResponse
+   *   An AJAX response containing the rendered thread content.
+   */
+  public function loadThreadAjax($match_thread_uuid)
+  {
+    $response = new AjaxResponse();
+    $thread_storage = $this->entityTypeManager->getStorage('match_thread');
+    $threads = $thread_storage->loadByProperties(['uuid' => $match_thread_uuid]);
+
+    if (empty($threads)) {
+      $response->addCommand(new \Drupal\Core\Ajax\HtmlCommand('#chat-conversation-area', $this->t('Chat thread not found.')));
+      return $response;
+    }
+
+    /** @var \Drupal\match_chat\Entity\MatchThreadInterface $thread */
+    $thread = reset($threads);
+
+    $current_user_id = $this->currentUser->id();
+    $user1 = $thread->getUser1();
+    $user2 = $thread->getUser2();
+
+    if (!$user1 || !$user2 || ($current_user_id != $user1->id() && $current_user_id != $user2->id())) {
+      $response->addCommand(new \Drupal\Core\Ajax\HtmlCommand('#chat-conversation-area', $this->t('You do not have access to this chat thread.')));
+      return $response;
+    }
+
+    // Re-use the logic from viewThread to get the render array for the thread content.
+    $thread_render_array = $this->viewThread($match_thread_uuid);
+
+    // Extract the relevant part of the render array (the conversation area).
+    // This assumes match_thread.html.twig is structured to be a self-contained conversation.
+    $rendered_content = $this->renderer->renderRoot($thread_render_array);
+
+    $response->addCommand(new \Drupal\Core\Ajax\HtmlCommand('#chat-conversation-area', $rendered_content));
+    // Also update the active class in the thread list.
+    $response->addCommand(new \Drupal\Core\Ajax\InvokeCommand('.match-threads-list .list-group-item', 'removeClass', ['active']));
+    $response->addCommand(new \Drupal\Core\Ajax\InvokeCommand('[data-thread-uuid="' . $match_thread_uuid . '"]', 'addClass', ['active']));
+
+    return $response;
   }
 }

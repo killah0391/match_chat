@@ -1,20 +1,59 @@
+/* Ensure html and body take full height for vh units and percentage heights to work reliably */
+html, body {
+  height: 100%;
+}
+
+.match-chat-container {
+  /* height: 80vh; */
+  /* Or a fixed height like 700px */
+  /* max-height: 750px; */
+  overflow: hidden;
+  /* Hide overflow from the container itself */
+}
+
+.match-threads-list-sidebar {
+  max-height: 750px;
+  overflow-y: auto;
+}
+
+.match-threads-list .text-muted {
+  color: #ccc!important;
+}
+
+.match-threads-list .list-group-item {
+  background-color: #f9f9f9!important;
+}
+
+.match-threads-list .list-group-item:hover {
+  background-color: rgba(235, 235, 235, 0.634) !important;
+}
+
+.match-threads-list .list-group-item.active {
+  background: indianred!important;
+  color: white!important;
+  border: none;
+}
+
+#chat-conversation-area {
+  max-height: 750px;
+}
+
 .match-chat-thread-wrapper {
   display: flex;
   flex-direction: column;
-  min-height: 500px;
-  /* Example fixed height for the whole chat box */
-  /* Or use viewport units e.g., height: 70vh; max-height: 600px; */
-  border: 1px solid #e0e0e0;
-  border-radius: 5px;
+  height: 100%;
+  /* The background for the wrapper itself, can be white or a very light grey */
   background-color: #f9f9f9;
-  margin-bottom: 20px;
+  /* margin-bottom is removed as it breaks the 100% height in a flex container */
 }
 
 .chat-with-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 10px 15px;
   border-bottom: 1px solid #e0e0e0;
-  background-color: #f1f1f1;
-  /* Slightly different for header */
+  background-color: #f8f9fa; /* Use a standard light grey */
   flex-shrink: 0;
   /* Prevent header from shrinking */
 }
@@ -29,23 +68,27 @@
   flex-grow: 1;
   /* Allows this area to take available vertical space */
   overflow-y: auto;
+  max-height: 400px; /* Crucial: Allows the flex item to shrink below its content size if needed */
   /* Adds vertical scrollbar when content exceeds height */
   padding: 10px 15px;
-  background-color: #ffffff;
-  /* White background for messages area */
-  max-height: 400px;
-  /* Ensure it has some height */
+  background-color: #ffffff; /* Explicitly set background for message area */
+}
+
+.chat-form-container .form-item {
+  margin-bottom: 0;
+  /* Remove bottom margin from form items when using flex */
 }
 
 /* This is the div that gets replaced by AJAX, wrapper of the ul */
-#match-chat-messages-wrapper.chat-messages-list-inner-content {
-  /* No specific styles needed here unless for direct children spacing */
+#match-chat-messages-wrapper.chat-messages-list-inner-content .list-group {
+  --bs-list-group-bg: none;
 }
 
 ul.chat-messages-ul {
   list-style: none;
   padding: 0;
   margin: 0;
+  background: none;
 }
 
 ul.chat-messages-ul li {
@@ -72,8 +115,7 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
 .chat-form-container {
   padding: 15px;
   border-top: 1px solid #e0e0e0;
-  /* background-color: #f1f1f1; */
-  /* Matches header background */
+  background-color: #f8f9fa; /* A standard light grey to separate from message area */
   flex-shrink: 0;
   /* Prevent form area from shrinking */
 }
@@ -181,7 +223,8 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
   /* Darker text for unread messages */
 }
 
-.match-threads-list .field--name-user-picture img {
+.match-threads-list .field--name-user-picture img,
+.match-threads-list img {
   width: 50px;
   height: 50px;
   object-fit: cover;

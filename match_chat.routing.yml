@@ -21,10 +21,36 @@ match_chat.view_thread:
     parameters:
       match_thread_uuid:
         type: string # We will load the entity manually by UUID in the controller
+# match_chat.my_threads:
+#   path: '/chat/my-threads'
+#   defaults:
+#     _controller: '\Drupal\match_chat\Controller\MatchChatController::myThreads'
+#     _title: 'My Chats'
+#   requirements:
+#     _permission: 'access match chat'
+
 match_chat.my_threads:
-  path: '/chat/my-threads'
+  path: '/chat/my-threads/{match_thread_uuid}'
   defaults:
     _controller: '\Drupal\match_chat\Controller\MatchChatController::myThreads'
     _title: 'My Chats'
+    match_thread_uuid: null # Default to null
   requirements:
     _permission: 'access match chat'
+  options:
+    parameters:
+      match_thread_uuid:
+        type: string # Ensure it's treated as a string if present
+
+match_chat.load_thread_ajax:
+  path: '/chat/load-thread/{match_thread_uuid}'
+  defaults:
+    _controller: '\Drupal\match_chat\Controller\MatchChatController::loadThreadAjax'
+    _title: 'Load Chat Thread'
+  requirements:
+    _permission: 'access match chat'
+  options:
+    parameters:
+      match_thread_uuid:
+        type: string
+    _custom_request_matcher: ajax_request_matcher

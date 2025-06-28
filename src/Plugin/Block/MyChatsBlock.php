@@ -7,10 +7,12 @@ use Drupal\file\Entity\File;
 use Drupal\Core\Block\BlockBase;
 use Drupal\image\Entity\ImageStyle;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\user\UserInterface;
 use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
+use Drupal\match_abuse\Service\BlockCheckerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -54,6 +56,13 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
   protected $routeMatch;
 
   /**
+   * The block checker service.
+   *
+   * @var \Drupal\match_abuse\Service\BlockCheckerInterface|null
+   */
+  protected $blockChecker;
+
+  /**
    * Constructs a new MyChatsBlock instance.
    *
    * @param array $configuration
@@ -71,20 +80,22 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
    * @param \Drupal\Core\Routing\RouteMatchInterface $route_match
    * The current route match.
    */
-  public function __construct(
+  public function __construct( // phpcs:ignore
     array $configuration,
     $plugin_id,
     $plugin_definition,
     EntityTypeManagerInterface $entity_type_manager,
     AccountInterface $current_user,
     DateFormatterInterface $date_formatter,
-    RouteMatchInterface $route_match // Add this
+    RouteMatchInterface $route_match,
+    ?BlockCheckerInterface $block_checker
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
     $this->currentUser = $current_user;
     $this->dateFormatter = $date_formatter;
     $this->routeMatch = $route_match; // Add this
+    $this->blockChecker = $block_checker;
   }
 
   /**
@@ -92,6 +103,10 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition)
   {
+    $block_checker_service = NULL;
+    if ($container->has('match_abuse.block_checker')) {
+      $block_checker_service = $container->get('match_abuse.block_checker');
+    }
     return new static(
       $configuration,
       $plugin_id,
@@ -99,7 +114,8 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
       $container->get('entity_type.manager'),
       $container->get('current_user'),
       $container->get('date.formatter'),
-      $container->get('current_route_match')
+      $container->get('current_route_match'),
+      $block_checker_service
     );
   }
 
@@ -123,6 +139,7 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
 
     $current_user_id = $this->currentUser->id();
     $thread_storage = $this->entityTypeManager->getStorage('match_thread');
+    $user_storage = $this->entityTypeManager->getStorage('user');
     $message_storage = $this->entityTypeManager->getStorage('match_message');
 
     $threads_data = [];
@@ -179,10 +196,29 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
         $user1 = $thread->getUser1();
         $user2 = $thread->getUser2();
 
+        // If $user1 or $user2 from thread are null, skip.
         if (!$user1 || !$user2) {
           continue;
         }
-        $other_user = ($user1->id() == $current_user_id) ? $user2 : $user1;
+
+        // Explicitly load user objects again, similar to a "previous" structure.
+        // Note: $user_storage was defined earlier in the build() method.
+        $loaded_user1 = $user_storage->load($user1->id());
+        $loaded_user2 = $user_storage->load($user2->id());
+
+        if (!$loaded_user1 || !$loaded_user2) { // Check again after explicit load
+          continue;
+        }
+        $other_user = ($loaded_user1->id() == $current_user_id) ? $loaded_user2 : $loaded_user1;
+        $current_user_object = $user_storage->load($current_user_id);
+
+        // If the blockChecker service is available, check for blocks.
+        if ($this->blockChecker && $current_user_object && $other_user) {
+          if ($this->blockChecker->isBlockActive($current_user_object, $other_user)) {
+            $cache_tags[] = 'match_abuse_block_list'; // Add dependency on block list.
+            continue; // Skip this thread if a block is active in either direction.
+          }
+        }
 
         // Fetch last message
         $last_message_query = $message_storage->getQuery()
@@ -241,13 +277,16 @@ class MyChatsBlock extends BlockBase implements ContainerFactoryPluginInterface
         if (!$other_user->get('user_picture')->isEmpty() && $other_user->get('user_picture')->entity instanceof File) {
           $user_picture_file = $other_user->get('user_picture')->entity;
           $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
-        } else {
+        }
+        else {
           $config = \Drupal::config('field.field.user.user.user_picture');
           $default_image = $config->get('settings.default_image');
-          $file = \Drupal::service('entity.repository')
-            ->loadEntityByUuid('file', $default_image['uuid']);
-          $picture_uri = $file;
-          $picture_url = \Drupal::service('file_url_generator')->generateAbsoluteString($picture_uri->getFileUri());
+          if (!empty($default_image['uuid'])) {
+            $file = $this->entityTypeManager->getStorage('file')->loadByProperties(['uuid' => $default_image['uuid']]);
+            if ($file = reset($file)) {
+              $picture_url = $thumb_style ? $thumb_style->buildUrl($file->getFileUri()) : $file->createFileUrl(FALSE);
+            }
+          }
         }
 
         $threads_data[] = [

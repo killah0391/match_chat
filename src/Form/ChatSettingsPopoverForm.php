@@ -4,15 +4,14 @@ namespace Drupal\match_chat\Form;
 
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Ajax\AjaxResponse;
-use Drupal\Core\Ajax\AppendCommand;
 use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Ajax\AnnounceCommand;
 use Drupal\Core\Ajax\InvokeCommand;
+use Drupal\Core\Ajax\MessageCommand;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\match_chat\Entity\MatchThreadInterface;
-use Drupal\match_toasts\Ajax\ShowBootstrapToastsCommand;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Ajax\HtmlCommand;
 
@@ -142,28 +141,24 @@ class ChatSettingsPopoverForm extends FormBase
     return $form;
   }
 
-  /**
-   * Helper function to add AJAX status messages using the preferred Drupal method.
-   */
   protected function addDrupalAjaxMessages(AjaxResponse $response, string $target_selector = self::AJAX_MESSAGES_CONTAINER_SELECTOR)
   {
     // Retrieve AND clear messages from the session queue.
     $messages_for_ajax = \Drupal::messenger()->deleteAll();
 
-    // Clear previous messages from the target container to avoid accumulation.
-    $response->addCommand(new HtmlCommand($target_selector, ''));
-
     if (!empty($messages_for_ajax)) {
-      $messages_render_array = [
-        '#theme' => 'status_messages',
-        '#message_list' => $messages_for_ajax,
-        '#status_headings' => [
-          'status' => $this->t('Status message'),
-          'error' => $this->t('Error message'),
-          'warning' => $this->t('Warning message'),
-        ],
-      ];
-      $response->addCommand(new AppendCommand($target_selector, $messages_render_array));
+      $first_message_in_batch = TRUE;
+      foreach ($messages_for_ajax as $type => $messages_of_type) {
+        foreach ($messages_of_type as $individual_message_text) {
+          $response->addCommand(new MessageCommand(
+            $individual_message_text,
+            $target_selector,
+            ['type' => $type],
+            $first_message_in_batch
+          ));
+          $first_message_in_batch = FALSE;
+        }
+      }
     }
   }
 
@@ -234,7 +229,22 @@ class ChatSettingsPopoverForm extends FormBase
         $response->addCommand(new ReplaceCommand('#' . $main_message_form_wrapper_id, $main_message_form));
       } catch (\Throwable $e) {
         $this->messenger()->addError($this->t('Error updating main chat form. Please refresh.'));
-        $this->addDrupalAjaxMessages($response); // Show this error too.
+        // Show this error too.
+        $ajax_messages = \Drupal::messenger()->deleteAll();
+        if (!empty($ajax_messages)) {
+          $first_message_in_batch = TRUE;
+          foreach ($ajax_messages as $type => $messages_of_type) {
+            foreach ($messages_of_type as $individual_message_text) {
+              $response->addCommand(new MessageCommand(
+                $individual_message_text,
+                static::AJAX_MESSAGES_CONTAINER_SELECTOR,
+                ['type' => $type],
+                $first_message_in_batch
+              ));
+              $first_message_in_batch = FALSE;
+            }
+          }
+        }
         \Drupal::logger('match_chat')->error('ajaxUploadsToggleCallback: Exception getting MatchMessageForm for thread @tid: @msg.', ['@tid' => $thread->id(), '@msg' => $e->getMessage()]);
       }
     }
@@ -281,16 +291,10 @@ class ChatSettingsPopoverForm extends FormBase
         ->accessCheck(FALSE) // Check existence, not entity access for viewing the block itself.
         ->execute();
 
-    $toast_message = '';
-    $toast_title = '';
-    $toast_type = 'status';
-
     if (!empty($existing_block_ids)) { // User is currently blocked, so unblock
       $entities_to_delete = $block_storage->loadMultiple($existing_block_ids);
       $block_storage->delete($entities_to_delete);
-      $toast_message = $this->t('You have unblocked @username.', ['@username' => $other_user->getAccountName()]);
-      $toast_title = $this->t('User Unblocked');
-      $toast_type = 'status';
+      $this->messenger()->addStatus($this->t('You have unblocked @username.', ['@username' => $other_user->getAccountName()]));
     }
     else { // User is not blocked, so block
       $block = $block_storage->create([
@@ -298,12 +302,10 @@ class ChatSettingsPopoverForm extends FormBase
         'blocked_uid' => $other_user->id(),
       ]);
       $block->save();
-      $toast_message = $this->t('You have blocked @username.', ['@username' => $other_user->getAccountName()]);
-      $toast_title = $this->t('User Blocked');
-      $toast_type = 'info';
+      $this->messenger()->addStatus($this->t('You have blocked @username.', ['@username' => $other_user->getAccountName()]));
     }
 
-    $response->addCommand(new ShowBootstrapToastsCommand($toast_message, $toast_title, $toast_type));
+    $this->addDrupalAjaxMessages($response, static::AJAX_MESSAGES_CONTAINER_SELECTOR);
 
     // Check if the current user is NOW blocked by the other user
     $current_user_is_blocked_by_other = FALSE;

@@ -1,0 +1,4 @@
+services:
+  match_chat.service:
+    class: Drupal\match_chat\Service\MatchChatService
+    arguments: ['@database', '@entity_type.manager']

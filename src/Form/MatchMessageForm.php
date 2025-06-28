@@ -5,6 +5,7 @@ namespace Drupal\match_chat\Form;
 use Drupal\Core\Cache\Cache;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Ajax\HtmlCommand;
+use Drupal\Core\Ajax\MessageCommand;
 use Drupal\Core\Ajax\AjaxResponse;
 use Drupal\Core\Ajax\AppendCommand;
 use Drupal\Core\Ajax\InvokeCommand;
@@ -292,22 +293,22 @@ class MatchMessageForm extends FormBase
         $this->messenger()->addError($error_message_text);
       }
 
-      $ajax_error_messages = \Drupal::messenger()->deleteAll(); // Retrieve and clear them.
+      $ajax_error_messages = \Drupal::messenger()->deleteAll(); // Retrieve and clear all messages.
       if (!empty($ajax_error_messages)) {
-        $messages_render_array = [
-          '#theme'        => 'status_messages',
-          '#message_list' => $ajax_error_messages,
-          '#status_headings' => [ // Optional, for accessibility.
-            'error' => $this->t('Error message'),
-            'status' => $this->t('Status message'),
-            'warning' => $this->t('Warning message'),
-          ],
-        ];
-        // Clear previous AJAX messages from the target container.
-        $response->addCommand(new HtmlCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, ''));
-        $response->addCommand(new AppendCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, $messages_render_array));
+        $first_message_in_batch = TRUE;
+        foreach ($ajax_error_messages as $type => $messages_of_type) {
+          foreach ($messages_of_type as $individual_message_text) {
+            $response->addCommand(new MessageCommand(
+              $individual_message_text,
+              static::AJAX_MESSAGES_CONTAINER_SELECTOR,
+              ['type' => $type], // Options for Drupal.message().add()
+              $first_message_in_batch // clearPrevious flag for the command
+            ));
+            $first_message_in_batch = FALSE;
+          }
+        }
       }
-      // Still replace the form, which will show inline errors if theme supports it for setErrorByName()
+      // Replace the form, which will show inline errors if the theme supports setErrorByName().
       $response->addCommand(new ReplaceCommand('#' . $form_wrapper_id, $form));
       return $response;
     }
@@ -366,18 +367,18 @@ class MatchMessageForm extends FormBase
     // Display any Drupal messages (status or errors that might have occurred after initial validation).
     $ajax_messages = \Drupal::messenger()->deleteAll();
     if (!empty($ajax_messages)) {
-      $messages_render_array = [
-        '#theme'        => 'status_messages',
-        '#message_list' => $ajax_messages,
-        '#status_headings' => [
-          'error' => $this->t('Error message'),
-          'status' => $this->t('Status message'),
-          'warning' => $this->t('Warning message'),
-        ],
-      ];
-      // Clear previous AJAX messages from the target container.
-      $response->addCommand(new HtmlCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, ''));
-      $response->addCommand(new AppendCommand(static::AJAX_MESSAGES_CONTAINER_SELECTOR, $messages_render_array));
+      $first_message_in_batch = TRUE;
+      foreach ($ajax_messages as $type => $messages_of_type) {
+        foreach ($messages_of_type as $individual_message_text) {
+          $response->addCommand(new MessageCommand(
+            $individual_message_text,
+            static::AJAX_MESSAGES_CONTAINER_SELECTOR,
+            ['type' => $type], // Options for Drupal.message().add()
+            $first_message_in_batch // clearPrevious flag for the command
+          ));
+          $first_message_in_batch = FALSE;
+        }
+      }
     }
 
     $response->addCommand(new InvokeCommand('.chat-messages-scroll-container', 'matchChatScrollToBottom'));
