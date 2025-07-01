@@ -9,10 +9,15 @@
   - is_current_user_blocked_by_other: Boolean, TRUE if the current user is blocked by the other participant.
   - current_user_has_blocked_other: Boolean, TRUE if the current user has blocked the other participant.
 #}
-{% set thread_id = thread.id() %} {# Keep thread_id for internal use #}
-<div class="match-chat-thread-wrapper d-flex flex-column h-100" data-thread-id="{{ thread_id }}">
+{% set thread_id = thread.id() %}
+{# Keep thread_id for internal use #}
+<div
+	class="match-chat-thread-wrapper d-flex flex-column h-100" data-thread-id="{{ thread_id }}">
 	{# Header Section with Title and Popover Trigger #}
 	<div class="chat-with-header flex-shrink-0">
+		<button type="button" class="btn btn-sm btn-outline-secondary me-2 chat-back-button" aria-label="{{ 'Back to threads list'|t }}">
+			<i class="bi bi-arrow-left"></i>
+		</button>
 		<h3 class="mb-0 h5">
 			{% if other_user_entity %}
 				{{ 'Chat with @username'|t({'@username': other_user_entity.displayName.value|default(other_user_entity.label)}) }}
@@ -20,7 +25,8 @@
 				{{ 'Chat'|t }}
 			{% endif %}
 		</h3>
-		{% if not is_current_user_blocked_by_other %} {# Hide button if current user is blocked by other #}
+		{% if not is_current_user_blocked_by_other %}
+			{# Hide button if current user is blocked by other #}
 			<button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="chat-settings-popover-trigger-{{ thread_id }}" aria-label="{{ 'Chat settings'|t }}" title="{{ 'Chat settings'|t }}">
 				<i class="bi bi-sliders"></i>
 			</button>
@@ -40,7 +46,8 @@
 	</div>
 
 	{# Message Input Form #}
-	<div class="chat-form-container flex-shrink-0">
+	<div
+		class="chat-form-container flex-shrink-0">
 		{# A stable container for AJAX messages from the form #}
 		<div class="chat-status-messages"></div>
 		{# message_form is now either the form or the warning markup from the controller #}

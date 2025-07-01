@@ -68,7 +68,7 @@ html, body {
   flex-grow: 1;
   /* Allows this area to take available vertical space */
   overflow-y: auto;
-  max-height: 400px; /* Crucial: Allows the flex item to shrink below its content size if needed */
+  max-height: 700px; /* Crucial: Allows the flex item to shrink below its content size if needed */
   /* Adds vertical scrollbar when content exceeds height */
   padding: 10px 15px;
   background-color: #ffffff; /* Explicitly set background for message area */
@@ -342,4 +342,45 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
 }
 .match-chat-message-form .form-submit::before {
   background-image: none;
+}
+
+/* --- Mobile Responsive Chat Layout --- */
+
+/* Hide the back button on larger screens (md and up) */
+.chat-with-header .chat-back-button {
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  /* Show the back button on small screens */
+  .chat-with-header .chat-back-button {
+    display: inline-block;
+  }
+
+  /* When a conversation is active, hide the sidebar */
+  .match-chat-container .row.conversation-active .col-12.col-md-4 {
+    display: none;
+  }
+
+  /* When a conversation is active, make the conversation area take full width */
+  .match-chat-container .row.conversation-active .col-12.col-md-8 {
+    display: block;
+    width: 100%;
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  /* When no conversation is active, hide the conversation area */
+  .match-chat-container .row:not(.conversation-active) .col-12.col-md-8 {
+    display: none;
+  }
+
+  /* When no conversation is active, make the sidebar take full width */
+  .match-chat-container .row:not(.conversation-active) .col-12.col-md-4 {
+    display: block;
+    width: 100%;
+    flex: 0 0 100%;
+    max-width: 100%;
+    border-right: none !important; /* Remove border on mobile */
+  }
 }
