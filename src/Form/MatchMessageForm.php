@@ -213,6 +213,22 @@ class MatchMessageForm extends FormBase
 
 
     $form['thread_id'] = ['#type' => 'hidden', '#value' => $this->thread->id()];
+
+    // Container for JS to inject image previews.
+    $form['image_previews'] = [
+      '#type' => 'container',
+      '#attributes' => ['id' => 'match-chat-image-previews-' . $this->thread->id()],
+      '#weight' => -5, // Place it above the file input element.
+    ];
+
+    // Hidden field to track FIDs of removed images.
+    // JS should populate this with a comma-separated list of FIDs.
+    $form['images_to_remove'] = [
+      '#type' => 'hidden',
+      '#default_value' => '',
+      '#attributes' => ['id' => 'edit-images-to-remove-' . $this->thread->id()],
+    ];
+
     $form['#attached']['library'][] = 'match_chat/match_chat_image_preview';
 
     return $form;
@@ -263,17 +279,29 @@ class MatchMessageForm extends FormBase
 
     if (!$form_state->hasAnyErrors()) {
       $message_value = $form_state->getValue('message');
-      $image_fids = $form_state->getValue('chat_images');
+      $image_fids = $form_state->getValue('chat_images', []);
 
-      if (empty(trim($message_value)) && empty($image_fids)) {
+      // Get FIDs of images the user wants to remove from the preview.
+      $fids_to_remove_str = $form_state->getValue('images_to_remove', '');
+      $fids_to_remove = $fids_to_remove_str ? explode(',', $fids_to_remove_str) : [];
+      // Sanitize to ensure we have an array of integers.
+      $fids_to_remove = array_filter(array_map('intval', $fids_to_remove));
+
+      // Calculate the final list of FIDs to be submitted.
+      $final_fids = array_values(array_diff($image_fids, $fids_to_remove));
+
+      // Store the final list for submitForm() to use.
+      $form_state->set('final_fids', $final_fids);
+
+      if (empty(trim($message_value)) && empty($final_fids)) {
         $form_state->setErrorByName('message', $this->t('You must enter a message or upload at least one image.'));
       }
 
-      if (!empty($image_fids) && !$thread->bothParticipantsAllowUploads()) {
+      if (!empty($final_fids) && !$thread->bothParticipantsAllowUploads()) {
         $form_state->setErrorByName('chat_images', $this->t('File uploads are not allowed by both participants. Enable via chat settings or remove files.'));
       }
 
-      if (!empty($image_fids) && count($image_fids) > 3) {
+      if (count($final_fids) > 3) {
         $form_state->setErrorByName('chat_images', $this->t('You can upload a maximum of 3 images.'));
       }
     }
@@ -402,9 +430,9 @@ class MatchMessageForm extends FormBase
       return;
     }
 
-    $values = $form_state->getValues();
+    $thread_id = $form_state->getValue('thread_id');
     /** @var \Drupal\match_chat\Entity\MatchThreadInterface|null $thread */
-    $thread = $this->entityTypeManager->getStorage('match_thread')->load($values['thread_id']);
+    $thread = $this->entityTypeManager->getStorage('match_thread')->load($thread_id);
 
     if (!$thread) {
       // For non-AJAX, this is fine. For AJAX, ajaxSubmitCallback should catch this.
@@ -413,21 +441,22 @@ class MatchMessageForm extends FormBase
       return;
     }
 
-    $fids = $values['chat_images'] ?? [];
-    if (!empty($fids) && !$thread->bothParticipantsAllowUploads()) {
+    // Retrieve the final, validated list of FIDs from the form state.
+    $final_fids = $form_state->get('final_fids') ?? [];
+    if (!empty($final_fids) && !$thread->bothParticipantsAllowUploads()) {
       // This case should ideally be caught by validation, but as a fallback:
       $form_state->setErrorByName('chat_images', $this->t('File uploads are not permitted by both participants. Message sent without files.'));
       $this->messenger()->addWarning($this->t('File uploads are not permitted by both participants. Message sent without files.'));
-      $fids = []; // Do not save files.
+      $final_fids = []; // Do not save files.
     }
 
     try {
       /** @var \Drupal\match_chat\Entity\MatchMessageInterface $message_entity */
       $message_entity = $this->entityTypeManager->getStorage('match_message')->create([
         'sender' => $this->currentUser->id(),
-        'thread_id' => $values['thread_id'],
-        'message' => $values['message'],
-        'chat_images' => $fids,
+        'thread_id' => $thread_id,
+        'message' => $form_state->getValue('message'),
+        'chat_images' => $final_fids,
       ]);
       $message_entity->save();
 
@@ -451,12 +480,14 @@ class MatchMessageForm extends FormBase
       // Clear form values for the next message on AJAX rebuild.
       $form_state->setValue('message', '');
       $form_state->setValue('chat_images', []); // Clear selected files.
+      $form_state->setValue('images_to_remove', ''); // Clear removed images list.
       // Crucial for managed_file to reset properly after AJAX.
       $user_input = $form_state->getUserInput();
       unset($user_input['message']);
       // For managed_file, the 'chat_images[fids]' might be what needs unsetting if issues persist.
       // Or just clearing the whole 'chat_images' array from user input.
       unset($user_input['chat_images']);
+      unset($user_input['images_to_remove']);
       $form_state->setUserInput($user_input);
       $form_state->setRebuild(TRUE); // Ensure form is rebuilt fresh.
 

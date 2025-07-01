@@ -1,0 +1,86 @@
+/**
+ * @file
+ * Styles for the match chat image previews.
+ */
+
+/* Container for all the image previews */
+[id^="match-chat-image-previews-"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px; /* Space between previews and the message input */
+}
+
+/* Wrapper for a single preview item (image + remove button) */
+.image-preview-item {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #f0f0f0;
+  /* Add a subtle animation for the loading state */
+  animation: pulse-bg 2s infinite;
+}
+
+/* Stop the loading animation once the preview is activated with a FID */
+.image-preview-item[data-fid] {
+  animation: none;
+}
+
+/* Add a spinner icon for loading state using a pseudo-element */
+.image-preview-item:not([data-fid])::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-bg {
+  0% { background-color: #f0f0f0; }
+  50% { background-color: #e0e0e0; }
+  100% { background-color: #f0f0f0; }
+}
+
+/* The preview image thumbnail */
+.image-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* Ensures the image covers the area without distortion */
+}
+
+/* The 'x' remove button */
+.image-preview-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.image-preview-remove:hover {
+  background-color: #d9534f; /* A bootstrap 'danger' red */
+}
