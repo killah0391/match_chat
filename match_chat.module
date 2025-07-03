@@ -7,12 +7,13 @@
  * Provides one-to-one chat functionality and related features.
  */
 
+use Drupal\file\FileInterface;
+use Drupal\user\UserInterface;
+use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Session\AccountInterface;
-use Drupal\Core\Access\AccessResult;
-use Drupal\match_chat\Entity\MatchMessageInterface;
 use Drupal\match_chat\Entity\MatchThreadInterface;
-use Drupal\user\UserInterface;
+use Drupal\match_chat\Entity\MatchMessageInterface;
 
 /**
  * Implements hook_theme().
@@ -28,6 +29,7 @@ function match_chat_theme()
         'chat_settings_popover_form' => NULL,
         'current_user_entity' => NULL,
         'other_user_entity' => NULL,
+        'other_user_picture' => NULL,
       ],
       'template' => 'match-thread',
     ],

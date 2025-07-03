@@ -31,6 +31,15 @@
       // Handle clicking on a thread in the sidebar.
       $(once('match-chat-thread-loader', '.chat-thread-link', context)).on('click', function (e) {
         e.preventDefault();
+
+        // Before loading a new thread, find and hide any currently open popover.
+        // This ensures its content is moved back to the original container before
+        // the container is destroyed by the AJAX replacement.
+        const openPopoverTrigger = document.querySelector('[id^="chat-settings-popover-trigger-"][aria-describedby]');
+        if (openPopoverTrigger) {
+          bootstrap.Popover.getInstance(openPopoverTrigger)?.hide();
+        }
+
         const $link = $(this);
         const threadUuid = $(this).data('thread-uuid');
         const ajaxUrl = Drupal.url('chat/load-thread/' + threadUuid);

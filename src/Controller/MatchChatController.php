@@ -272,6 +272,24 @@ class MatchChatController extends ControllerBase
     /** @var \Drupal\user\UserInterface $other_user_entity */
     $other_user_entity = ($user1_id == $current_user_id) ? $user2 : $user1;
 
+    // Get user picture URL.
+    $thumb_style = ImageStyle::load('thumbnail');
+    $picture_url = NULL;
+    if (!$other_user_entity->get('user_picture')->isEmpty() && $other_user_entity->get('user_picture')->entity instanceof File) {
+      $user_picture_file = $other_user_entity->get('user_picture')->entity;
+      $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
+    } else {
+      // Use the injected config factory.
+      $config = $this->config('field.field.user.user.user_picture');
+      $default_image = $config->get('settings.default_image');
+      if (!empty($default_image['uuid'])) {
+        $file = $this->entityTypeManager->getStorage('file')->loadByProperties(['uuid' => $default_image['uuid']]);
+        if ($file = reset($file)) {
+          $picture_url = $thumb_style ? $thumb_style->buildUrl($file->getFileUri()) : $file->createFileUrl(FALSE);
+        }
+      }
+    }
+
     $is_current_user_blocked_by_other = FALSE;
     $current_user_has_blocked_other = FALSE;
     $block_message_for_form_container = '';
@@ -279,44 +297,43 @@ class MatchChatController extends ControllerBase
     $block_storage = $this->entityTypeManager->getStorage('match_abuse_block');
     // Check if the other user has blocked the current user.
     $blocks_by_other = $block_storage->getQuery()
-        ->condition('blocker_uid', $other_user_entity->id())
-        ->condition('blocked_uid', $current_user_entity->id())
-        ->accessCheck(FALSE) // Check existence, not entity access for viewing the block itself.
-        ->execute();
+      ->condition('blocker_uid', $other_user_entity->id())
+      ->condition('blocked_uid', $current_user_entity->id())
+      ->accessCheck(FALSE) // Check existence, not entity access for viewing the block itself.
+      ->execute();
     if (!empty($blocks_by_other)) {
-        $is_current_user_blocked_by_other = TRUE;
-        $warning_message_text = $this->t('@username has blocked you. You cannot send messages or change chat settings.', ['@username' => $other_user_entity->getAccountName()]);
-        // This markup will be used if the user is blocked.
+      $is_current_user_blocked_by_other = TRUE;
+      $warning_message_text = $this->t('@username has blocked you. You cannot send messages or change chat settings.', ['@username' => $other_user_entity->getAccountName()]);
+      // This markup will be used if the user is blocked.
+      $block_message_for_form_container = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
+    } else {
+      // Only check if current user is blocker if they are NOT blocked by other.
+      $blocks_by_current_user = $block_storage->getQuery()
+        ->condition('blocker_uid', $current_user_entity->id())
+        ->condition('blocked_uid', $other_user_entity->id())
+        ->accessCheck(FALSE)
+        ->execute();
+      if (!empty($blocks_by_current_user)) {
+        $current_user_has_blocked_other = TRUE;
+        $warning_message_text = $this->t('You have blocked @username. You cannot send messages until you unblock them.', ['@username' => $other_user_entity->getAccountName()]);
         $block_message_for_form_container = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
-    }
-    else {
-        // Only check if current user is blocker if they are NOT blocked by other.
-        $blocks_by_current_user = $block_storage->getQuery()
-            ->condition('blocker_uid', $current_user_entity->id())
-            ->condition('blocked_uid', $other_user_entity->id())
-            ->accessCheck(FALSE)
-            ->execute();
-        if (!empty($blocks_by_current_user)) {
-            $current_user_has_blocked_other = TRUE;
-            $warning_message_text = $this->t('You have blocked @username. You cannot send messages until you unblock them.', ['@username' => $other_user_entity->getAccountName()]);
-            $block_message_for_form_container = '<div class="alert alert-warning bootstrap-warning-alert-container" role="alert">' . $warning_message_text . '</div>';
-        }
+      }
     }
 
     $messages_render_array = $this->renderMessages($thread, $current_user_entity);
 
     // Main message input form
     if ($is_current_user_blocked_by_other || $current_user_has_blocked_other) {
-        $message_form_render_array = ['#markup' => $block_message_for_form_container];
+      $message_form_render_array = ['#markup' => $block_message_for_form_container];
     } else {
-        $message_form_render_array = $this->formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
+      $message_form_render_array = $this->formBuilder()->getForm(\Drupal\match_chat\Form\MatchMessageForm::class, $thread);
     }
 
     // Chat Settings Popover Form (includes block user and allow uploads)
     if ($is_current_user_blocked_by_other) { // If current user is blocked by other, hide popover entirely
-        $chat_settings_popover_form_render_array = ['#markup' => '']; // Empty if blocked by other
+      $chat_settings_popover_form_render_array = ['#markup' => '']; // Empty if blocked by other
     } else { // Otherwise, show it (it will internally handle its own state)
-        $chat_settings_popover_form_render_array = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $thread);
+      $chat_settings_popover_form_render_array = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $thread);
     }
 
     return [
@@ -327,6 +344,7 @@ class MatchChatController extends ControllerBase
       '#chat_settings_popover_form' => $chat_settings_popover_form_render_array,
       '#current_user_entity' => $current_user_entity,
       '#other_user_entity' => $other_user_entity,
+      '#other_user_picture' => $picture_url,
       '#current_user_has_blocked_other' => $current_user_has_blocked_other,
       '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
       '#attached' => [
@@ -335,7 +353,8 @@ class MatchChatController extends ControllerBase
           'match_chat/match_chat_styles',
           'match_chat/match_chat_scrolltobottom',
           'match_chat/match_chat_popover',
-          'match_abuse/match-abuse-script', // For Bootstrap Toasts
+          'match_abuse/match-abuse-script',
+          'match_chat/match_chat_image_zoom',
         ],
         'drupalSettings' => [
           'match_chat' => [
@@ -563,8 +582,7 @@ class MatchChatController extends ControllerBase
         if (!$other_user->get('user_picture')->isEmpty() && $other_user->get('user_picture')->entity instanceof File) {
           $user_picture_file = $other_user->get('user_picture')->entity;
           $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
-        }
-        else {
+        } else {
           $config = \Drupal::config('field.field.user.user.user_picture');
           $default_image = $config->get('settings.default_image');
           if (!empty($default_image['uuid'])) {
@@ -634,6 +652,22 @@ class MatchChatController extends ControllerBase
         $chat_settings_popover_form_render_array = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $selected_thread);
       }
 
+      $thumb_style = ImageStyle::load('thumbnail');
+      $picture_url = NULL;
+      if (!$other_user_entity->get('user_picture')->isEmpty() && $other_user_entity->get('user_picture')->entity instanceof File) {
+        $user_picture_file = $other_user_entity->get('user_picture')->entity;
+        $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
+      } else {
+        $config = \Drupal::config('field.field.user.user.user_picture');
+        $default_image = $config->get('settings.default_image');
+        if (!empty($default_image['uuid'])) {
+          $file = $this->entityTypeManager->getStorage('file')->loadByProperties(['uuid' => $default_image['uuid']]);
+          if ($file = reset($file)) {
+            $picture_url = $thumb_style ? $thumb_style->buildUrl($file->getFileUri()) : $file->createFileUrl(FALSE);
+          }
+        }
+      }
+
       $selected_thread_render_array = [
         '#theme' => 'match_thread',
         '#thread' => $selected_thread,
@@ -642,6 +676,7 @@ class MatchChatController extends ControllerBase
         '#chat_settings_popover_form' => $chat_settings_popover_form_render_array,
         '#current_user_entity' => $current_user_entity,
         '#other_user_entity' => $other_user_entity,
+        '#other_user_picture' => $picture_url,
         '#current_user_has_blocked_other' => $current_user_has_blocked_other,
         '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
         '#attached' => [
@@ -650,6 +685,7 @@ class MatchChatController extends ControllerBase
             'match_chat/match_chat_scrolltobottom',
             'match_chat/match_chat_popover',
             'match_abuse/match-abuse-script',
+            'match_chat/match_chat_image_zoom',
           ],
           'drupalSettings' => [
             'match_chat' => [

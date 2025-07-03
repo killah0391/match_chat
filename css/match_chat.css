@@ -149,12 +149,37 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
   /* Subtle shadow */
 }
 
+/* HTML: <div class="tooltip">This is the same as #7 but with another shape for the tail </div> */
 .message-sent {
-  background-color: #dddddd;
-  /* Light green for sent */
-  /* border-color: #ff7c7c; */
+  color: #fff;
+  font-size: 18px;
   float: right;
-  margin-left: 25%;
+}
+.message-sent { 
+  --b: 3em; /* tail dimension */
+
+  --p: 37%;  /* main position (0%:top 100%:bottom) */
+  --r: 1.2em; /* the radius */
+
+  padding: 1em;
+  border-radius: var(--r)/var(--r) min(var(--r),var(--p) - var(--b)/4) min(var(--r),100% - var(--p) - var(--b)/4) var(--r);
+  background: #ddd; /* the main color */
+  position: relative;
+  right: 30px;
+}
+.message-sent:before {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: clamp(var(--b)/-2,var(--p) - 3*var(--b)/4,100% - var(--b));
+  width: var(--b);
+  aspect-ratio: 1;
+  background: inherit;
+  --g:#000 calc(100% - 1px),#0000;
+  -webkit-mask: 
+    radial-gradient(circle closest-side at 88% 12%,var(--g)),
+    radial-gradient(20% 20% at 55% 52%,var(--g)),
+    radial-gradient(25% 25% at 0 75%,var(--g));
 }
 
 .message-sent .message-sender,
@@ -166,12 +191,37 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
   color: #999999;
 }
 
+/* HTML: <div class="tooltip">This is the same as #8 but with another shape for the tail </div> */
 .message-received {
-  background-color: #ff7c7c;
-  /* Light grey for received */
-  border-color: #999;
+  color: #fff;
+  font-size: 18px;
   float: left;
-  margin-right: 25%;
+}
+.message-received { 
+  --b: 3em; /* tail dimension */
+
+  --p: 37%;  /* main position (0%:top 100%:bottom) */
+  --r: 1.2em; /* the radius */
+
+  padding: 1em;
+  border-radius: var(--r)/min(var(--r),var(--p) - var(--b)/4) var(--r) var(--r) min(var(--r),100% - var(--p) - var(--b)/4);
+  background: indianred; /* the main color */
+  position: relative;
+  left: 45px;
+}
+.message-received:before {
+  content: "";
+  position: absolute;
+  right: 100%;
+  top: clamp(var(--b)/-2,var(--p) - 3*var(--b)/4,100% - var(--b));
+  width: var(--b);
+  aspect-ratio: 1;
+  background: inherit;
+  --g:#000 calc(100% - 1px),#0000;
+  -webkit-mask: 
+    radial-gradient(circle closest-side at 12% 12%,var(--g)),
+    radial-gradient(20% 20% at 45% 52%,var(--g)),
+    radial-gradient(25% 25% at 100% 75%,var(--g));
 }
 
 .message-sender {

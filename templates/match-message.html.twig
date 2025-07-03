@@ -38,7 +38,10 @@
             '#style_name': 'medium',
             '#uri': image_file.uri.value,
             '#alt': 'Chat image'|t,
-            '#attributes': { 'class': ['chat-image-attachment'] },
+            '#attributes': {
+              'class': ['chat-image-attachment', 'js-zoomable-image'],
+              'data-zoom-src': file_url(image_file.uri.value)
+            },
           } %}
 					{{ image_render_array }}
 				{% endif %}
@@ -46,6 +49,7 @@
 		</div>
 	{% endif %}
 
-	<div class="message-timestamp"><small>{{ created_formatted }}</small></div>
+	<div class="message-timestamp">
+		<small>{{ created_formatted }}</small>
+	</div>
 </div>
-

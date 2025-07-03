@@ -24,10 +24,13 @@
 		class="row g-0 {% if selected_thread_uuid %}conversation-active{% endif %}">
 		{# Left Column: Thread List #}
 		<div class="col-12 col-md-4 col-lg-3 border-end">
-			<div class="match-threads-list-sidebar">
-				{% if threads %}
+			<div
+				class="match-threads-list-sidebar">
+				{# Filter threads to only include those with messages. #}
+				{% set threads_with_messages = threads|filter(thread => thread.last_message_date is not empty) %}
+				{% if threads_with_messages %}
 					<div class="list-group list-group-flush match-threads-list">
-						{% for thread in threads %}
+						{% for thread in threads_with_messages %}
 							<a href="{{ path('match_chat.my_threads', {'match_thread_uuid': thread.thread_uuid}) }}" class="list-group-item list-group-item-action p-3 chat-thread-link {% if thread.unread_count > 0 %}font-weight-bold{% endif %} {% if selected_thread_uuid == thread.thread_uuid %}active{% endif %}" aria-current="{% if selected_thread_uuid == thread.thread_uuid %}true{% else %}false{% endif %}" data-thread-uuid="{{ thread.thread_uuid }}">
 								<div
 									class="d-flex align-items-center">
@@ -41,11 +44,11 @@
 									{# Main content: Name, Message Preview, and Date #}
 									<div class="flex-grow-1 overflow-hidden">
 										<div class="d-flex justify-content-between align-items-start">
-											<h6 class="mb-1 text-truncate">{{ thread.other_user_name }}</h6>
+											<h6 class="mb-1 text-truncate text-danger-emphasis">{{ thread.other_user_name }}</h6>
 											<small class="text-nowrap text-muted ms-2">{{ thread.last_message_date }}</small>
 										</div>
 										<div class="d-flex justify-content-between align-items-end">
-											<p class="mb-0 text-muted small text-truncate">
+											<p class="mb-0 text-muted small text-truncate text-danger-emphasis">
 												{% if thread.last_message_sender_name == 'You' %}
 													<strong>{{ thread.last_message_sender_name }}:</strong>
 												{% endif %}
@@ -56,7 +59,7 @@
 
 											{# Unread count badge: Only shown if there are unread messages. #}
 											{% if thread.unread_count > 0 %}
-												<span class="badge bg-primary rounded-pill ms-2">{{ thread.unread_count }}</span>
+												<span class="badge bg-danger-subtle rounded-pill ms-2">{{ thread.unread_count }}</span>
 											{% endif %}
 										</div>
 									</div>

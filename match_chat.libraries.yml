@@ -33,3 +33,14 @@ match_chat_popover:
     - core/drupal
     - core/once
     - core/drupalSettings
+
+match_chat_image_zoom:
+  version: 1.x
+  js:
+    js/match_chat_image_zoom.js: {}
+  css:
+    theme:
+      css/match_chat_image_zoom.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
