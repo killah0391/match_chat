@@ -37,7 +37,7 @@
 									{# User Picture: flex-shrink-0 prevents the image from shrinking. #}
 									{% if thread.other_user_picture %}
 										<div class="flex-shrink-0 me-3">
-											<img src="{{ thread.other_user_picture }}" style="width:50px;height:50px;" class="rounded-circle" alt="{{ thread.other_user_name }}'s profile picture"/>
+											{{ thread.other_user_picture }}
 										</div>
 									{% endif %}
 

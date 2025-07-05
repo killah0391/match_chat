@@ -273,7 +273,7 @@ ul.chat-messages-ul li:not(:last-child) .match-chat-message {
   /* Darker text for unread messages */
 }
 
-.match-threads-list .field--name-user-picture img,
+.field--name-user-picture img,
 .match-threads-list img {
   width: 50px;
   height: 50px;

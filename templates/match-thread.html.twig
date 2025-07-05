@@ -18,10 +18,10 @@
 		<button type="button" class="btn btn-sm btn-outline-danger-subtle me-2 chat-back-button" aria-label="{{ 'Back to threads list'|t }}">
 			<i class="bi bi-arrow-left"></i>
 		</button>
-		<h3 class="mb-0 h5 d-flex align-items-center flex-grow-1">
+		<h3 class="mb-0 h5 d-flex align-items-center flex-shrink-0 me-3">
 			{% if other_user_entity %}
-				<a href="{{ path('entity.user.canonical', {'user': other_user_entity.id()}) }}"><img src="{{ other_user_picture }}" style="width:50px;height:50px;" class="rounded-circle me-2"/></a>
-				{{ other_user_entity.displayName.value|default(other_user_entity.label) }}
+				<a href="{{ path('entity.user.canonical', {'user': other_user_entity.id()}) }}">{{ other_user_picture }}</a>
+				<span class="ms-3">{{ other_user_entity.displayName.value|default(other_user_entity.label) }}</span>
 			{% else %}
 				{{ 'Chat'|t }}
 			{% endif %}

@@ -20,8 +20,6 @@ use League\Container\Exception\NotFoundException;
 use Drupal\notifier\NotifierService;
 use Drupal\Core\Datetime\DateFormatterInterface; // Add this
 use Drupal\Core\Render\RendererInterface;
-use Drupal\image\Entity\ImageStyle;
-use Drupal\file\Entity\File;
 
 /**
  * Controller for Match Chat.
@@ -272,23 +270,8 @@ class MatchChatController extends ControllerBase
     /** @var \Drupal\user\UserInterface $other_user_entity */
     $other_user_entity = ($user1_id == $current_user_id) ? $user2 : $user1;
 
-    // Get user picture URL.
-    $thumb_style = ImageStyle::load('thumbnail');
-    $picture_url = NULL;
-    if (!$other_user_entity->get('user_picture')->isEmpty() && $other_user_entity->get('user_picture')->entity instanceof File) {
-      $user_picture_file = $other_user_entity->get('user_picture')->entity;
-      $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
-    } else {
-      // Use the injected config factory.
-      $config = $this->config('field.field.user.user.user_picture');
-      $default_image = $config->get('settings.default_image');
-      if (!empty($default_image['uuid'])) {
-        $file = $this->entityTypeManager->getStorage('file')->loadByProperties(['uuid' => $default_image['uuid']]);
-        if ($file = reset($file)) {
-          $picture_url = $thumb_style ? $thumb_style->buildUrl($file->getFileUri()) : $file->createFileUrl(FALSE);
-        }
-      }
-    }
+    // Get user picture render array.
+    $picture_render_array = $this->getUserPictureRenderArray($other_user_entity, 'thumbnail');
 
     $is_current_user_blocked_by_other = FALSE;
     $current_user_has_blocked_other = FALSE;
@@ -344,7 +327,7 @@ class MatchChatController extends ControllerBase
       '#chat_settings_popover_form' => $chat_settings_popover_form_render_array,
       '#current_user_entity' => $current_user_entity,
       '#other_user_entity' => $other_user_entity,
-      '#other_user_picture' => $picture_url,
+      '#other_user_picture' => $picture_render_array,
       '#current_user_has_blocked_other' => $current_user_has_blocked_other,
       '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
       '#attached' => [
@@ -576,27 +559,13 @@ class MatchChatController extends ControllerBase
           ->condition('created', $last_seen_timestamp, '>'); // Messages newer than last seen
         $unread_count = (int) $unread_query->count()->execute();
 
-        // Get user picture URL.
-        $thumb_style = ImageStyle::load('thumbnail');
-        $picture_url = NULL;
-        if (!$other_user->get('user_picture')->isEmpty() && $other_user->get('user_picture')->entity instanceof File) {
-          $user_picture_file = $other_user->get('user_picture')->entity;
-          $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
-        } else {
-          $config = \Drupal::config('field.field.user.user.user_picture');
-          $default_image = $config->get('settings.default_image');
-          if (!empty($default_image['uuid'])) {
-            $file = $this->entityTypeManager->getStorage('file')->loadByProperties(['uuid' => $default_image['uuid']]);
-            if ($file = reset($file)) {
-              $picture_url = $thumb_style ? $thumb_style->buildUrl($file->getFileUri()) : $file->createFileUrl(FALSE);
-            }
-          }
-        }
+        // Get user picture render array.
+        $picture_render_array = $this->getUserPictureRenderArray($other_user, 'profile_picture_thumbnail_100x100');
 
         $threads_data[] = [
           'thread_uuid' => $thread->uuid(),
           'other_user_name' => $other_user->getDisplayName(),
-          'other_user_picture' => $picture_url,
+          'other_user_picture' => $picture_render_array,
           'last_message_text' => $last_message_text,
           'last_message_date' => $last_message_date,
           'last_message_sender_name' => $last_message_sender_name,
@@ -652,21 +621,8 @@ class MatchChatController extends ControllerBase
         $chat_settings_popover_form_render_array = $this->formBuilder()->getForm(ChatSettingsPopoverForm::class, $selected_thread);
       }
 
-      $thumb_style = ImageStyle::load('thumbnail');
-      $picture_url = NULL;
-      if (!$other_user_entity->get('user_picture')->isEmpty() && $other_user_entity->get('user_picture')->entity instanceof File) {
-        $user_picture_file = $other_user_entity->get('user_picture')->entity;
-        $picture_url = $thumb_style ? $thumb_style->buildUrl($user_picture_file->getFileUri()) : $user_picture_file->createFileUrl(FALSE);
-      } else {
-        $config = \Drupal::config('field.field.user.user.user_picture');
-        $default_image = $config->get('settings.default_image');
-        if (!empty($default_image['uuid'])) {
-          $file = $this->entityTypeManager->getStorage('file')->loadByProperties(['uuid' => $default_image['uuid']]);
-          if ($file = reset($file)) {
-            $picture_url = $thumb_style ? $thumb_style->buildUrl($file->getFileUri()) : $file->createFileUrl(FALSE);
-          }
-        }
-      }
+      // Get user picture render array.
+      $picture_render_array = $this->getUserPictureRenderArray($other_user_entity, 'thumbnail');
 
       $selected_thread_render_array = [
         '#theme' => 'match_thread',
@@ -676,7 +632,7 @@ class MatchChatController extends ControllerBase
         '#chat_settings_popover_form' => $chat_settings_popover_form_render_array,
         '#current_user_entity' => $current_user_entity,
         '#other_user_entity' => $other_user_entity,
-        '#other_user_picture' => $picture_url,
+        '#other_user_picture' => $picture_render_array,
         '#current_user_has_blocked_other' => $current_user_has_blocked_other,
         '#is_current_user_blocked_by_other' => $is_current_user_blocked_by_other,
         '#attached' => [
@@ -758,5 +714,28 @@ class MatchChatController extends ControllerBase
     $response->addCommand(new \Drupal\Core\Ajax\InvokeCommand('[data-thread-uuid="' . $match_thread_uuid . '"]', 'addClass', ['active']));
 
     return $response;
+  }
+
+  /**
+   * Gets a render array for a user's picture.
+   *
+   * @param \Drupal\user\UserInterface $user
+   *   The user entity.
+   * @param string $image_style
+   *   The image style to use.
+   *
+   * @return array
+   *   A render array for the user's picture.
+   */
+  private function getUserPictureRenderArray(UserInterface $user, string $image_style): array
+  {
+    // The 'user_picture' field handles the default image logic automatically
+    // when rendered, so we don't need to manually check for an empty field
+    // or load the default image configuration.
+    return $user->get('user_picture')->view([
+      'label' => 'hidden',
+      'type' => 'image',
+      'settings' => ['image_style' => $image_style],
+    ]);
   }
 }
